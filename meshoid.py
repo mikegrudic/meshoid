@@ -43,7 +43,7 @@ class meshoid(object):
         dx_matrix = np.linalg.inv(dx_matrix)
         self.dweights = np.einsum('ikl,ijl,ij->ijk',dx_matrix, dx, self.weights)
         
-        self.d2weights = d2weights(dx, self.weights)
+#        self.d2weights = d2weights(dx, self.weights)
         
         
     
@@ -73,11 +73,11 @@ class meshoid(object):
             self.ComputeWeights()
         return np.einsum('ijk,ij->ik',self.dweights,df)
 
-    def D2(self ,f):
-        df = DF(f, self.ngb)
-        if self.d2weights==None:
-            self.ComputeWeights()
-        return np.einsum('ij,ij->i',self.d2weights[:,:,2],df-np.einsum('ik,ijk->ij',self.D(f),self.dx))
+#    def D2(self ,f):
+#        df = DF(f, self.ngb)
+#        if self.d2weights==None:
+#            self.ComputeWeights()
+#        return np.einsum('ij,ij->i',self.d2weights[:,:,2],df-np.einsum('ik,ijk->ij',self.D(f),self.dx))
     
     def Integrate(self, f):
         return np.einsum('i,i...->...', self.vol,f)
