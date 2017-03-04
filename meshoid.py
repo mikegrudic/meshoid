@@ -32,6 +32,9 @@ class meshoid(object):
         
         self.dweights = None
 
+        self.sliceweights = None
+        self.slicegrid = None
+
     def ComputeWeights(self):
         dx = self.x[self.ngb] - self.x[:,None,:]
         self.dx = dx
@@ -87,6 +90,16 @@ class meshoid(object):
     
     def KernelAverage(self, f):
         return np.einsum('ij,ij->i',self.weights, f[self.ngb])
+
+    def Slice(self, f, res=(100,100), limits=((0,1),(0,1))):
+        x, y = np.linspace(limits[0][0],limits[0][1],res[0]), np.linspace(limits[1][0],limits[1][1],res[1])
+        x, y = np.meshgrid(x, y)
+        self.slicegrid = np.c_[x.flatten(), y.flatten(), np.zeros(res[0]*res[1])]
+        ngbdist, ngb = self.tree.query(self.slicegrid,32)
+        hgrid = HsmlIter(ngbdist,dim=3,error_norm=1e-3)
+        self.sliceweights = Kernel(np.einsum('ij,i->ij',ngbdist, hgrid**-1))
+        self.sliceweights = np.einsum('ij,i->ij', self.sliceweights, 1/np.sum(self.sliceweights,axis=1))
+        return np.einsum('ij,ij->i', self.sliceweights, f[ngb]).reshape(res)
 
 @jit
 def d2weights(dx, w):
