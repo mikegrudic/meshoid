@@ -1,5 +1,14 @@
 
-First let's import meshoid and the usual modules.
+# MESHOID: MESHless Operations such as Integrals and Derivatives
+"It's not a mesh; it's a meshoid!" - Alfred B. Einstimes
+
+## Installation
+Put a symlink to meshoid.py wherever your python modules are. Usually ends with site-packages.
+
+This module requires numpy, scipy and numba.
+
+## Walkthrough
+Let's take it for a spin. First let's import meshoid and the usual modules.
 
 
 ```python
@@ -9,7 +18,7 @@ from matplotlib import pyplot as plt
 %matplotlib inline
 ```
 
-Let's make a regular grid in the unit cube as a test case. Then we'll make a meshoid out of them with periodic boundaries.
+Let's make a regular grid in the unit cube as a test case. Then we'll make a meshoid out of those points with periodic boundaries.
 
 
 ```python
