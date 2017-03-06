@@ -242,3 +242,26 @@ def invsort(index):
     out = np.empty_like(index)
     for i in xrange(len(index)):
         out[index[i]] = i
+
+@jit
+def GridSurfaceDensity(mass, x, h, gridres, rmax):
+    L = rmax*2
+    grid = np.zeros((gridres,gridres))
+    dx = L/(gridres-1)
+    N = len(x)
+    for i in xrange(N):
+        xs = x[i] + rmax
+        hs = h[i]
+        mh2 = mass[i]/hs**2
+
+        gxmin = max(int((xs[0] - hs)/dx+1),0)
+        gxmax = min(int((xs[0] + hs)/dx),gridres-1)
+        gymin = max(int((xs[1] - hs)/dx+1), 0)
+        gymax = min(int((xs[1] + hs)/dx), gridres-1)
+        
+        for gx in xrange(gxmin, gxmax+1):
+            for gy in xrange(gymin,gymax+1):
+                kernel = Kernel2D(((xs[0] - gx*dx)**2 + (xs[1] - gy*dx)**2)**0.5 / hs)
+                grid[gx,gy] +=  kernel * mh2
+                
+    return grid
