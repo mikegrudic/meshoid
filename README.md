@@ -28,7 +28,7 @@ x = np.c_[x.flatten(),y.flatten(),z.flatten()] #generate the points on a uniform
 m = meshoid(x, des_ngb=32, boxsize=1.0) # make the meshoid for unit cube with periodic BCs
 ```
 
-Here we specified the boxsize because we want periodic BCs. We also specified des_ngb=33, which is the number of neighbrs used for kernel calculations. This defaults to 32 for the 3D case in both meshoid and GIZMO.
+Here we specified the boxsize because we want periodic BCs. We also specified des_ngb=32, which is the number of nearest neighbours used for kernel calculations. This defaults to 32 for the 3D case in both meshoid and GIZMO.
 
 The meshoid makes a kd-tree out of the points and uses it to find the nearest neighbors of each point, their distances, and the smoothing length and density as calculated by GIZMO:
 
@@ -106,7 +106,7 @@ plt.show()
 ![png](output_11_0.png)
 
 
-Nasty! Let's smooth that out be averaging over nearest neighbors a few times.
+Nasty! Let's smooth that out by averaging over nearest neighbors a few times.
 
 
 ```python
