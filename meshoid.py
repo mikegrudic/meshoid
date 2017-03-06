@@ -7,7 +7,7 @@ from scipy.linalg import inv
 from numba import jit, vectorize, float32, float64
 
 class meshoid(object):
-    def __init__(self, x, masses=None, des_ngb=None,boxsize=None, fixed_h = None): 
+    def __init__(self, x, masses=None, des_ngb=None, boxsize=None, fixed_h=None):
         if len(x.shape)==1:
             x = x[:,None]
 
@@ -19,7 +19,7 @@ class meshoid(object):
 
         self.fixed_h = fixed_h
         self.des_ngb = des_ngb    
-        print self.des_ngb    
+
         self.volnorm = {1: 2.0, 2: np.pi, 3: 4*np.pi/3}[self.dim]
         self.boxsize = boxsize
         
@@ -72,7 +72,7 @@ class meshoid(object):
 
     def D(self, f):
         df = DF(f, self.ngb)
-        if self.dweights == None:
+        if self.dweights is None:
             self.ComputeWeights()
         return np.einsum('ijk,ij->ik',self.dweights,df)
 
@@ -86,7 +86,8 @@ class meshoid(object):
         return np.einsum('i,i...->...', self.vol,f)
 
     def KernelVariance(self, f):
-        return np.std(DF(f,self.ngb)*self.weights, axis=1)
+#        return np.einsum('ij,ij->i', (f[self.ngb] - self.KernelAverage(f)[:,np.newaxis])**2, self.weights)
+        return np.std(f[self.ngb], axis=1)
     
     def KernelAverage(self, f):
         return np.einsum('ij,ij->i',self.weights, f[self.ngb])
