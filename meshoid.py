@@ -92,15 +92,26 @@ class meshoid(object):
     def KernelAverage(self, f):
         return np.einsum('ij,ij->i',self.weights, f[self.ngb])
 
-    def Slice(self, f, res=(100,100), limits=((0,1),(0,1))):
-        x, y = np.linspace(limits[0][0],limits[0][1],res[0]), np.linspace(limits[1][0],limits[1][1],res[1])
+    def Slice(self, f, size, plane='z', center=np.array([0,0,0]), res=(100,100)):
+        if np.array([size]).size ==1:
+            size = (size,size)
+        x, y = np.linspace(-size[0]/2,size[0]/2,res[0]), np.linspace(-size[1]/2, size[1]/2,res[1])
         x, y = np.meshgrid(x, y)
-        self.slicegrid = np.c_[x.flatten(), y.flatten(), np.zeros(res[0]*res[1])]
+
+        self.slicegrid = np.c_[x.flatten(), y.flatten(), np.zeros(res[0]*res[1])] + center
+        if plane=='x':
+            self.slicegrid = np.c_[np.zeros(res[0]*res[1]), x.flatten(), y.flatten()] + center
+        elif plane=='y':
+            self.slicegrid = np.c_[x.flatten(), np.zeros(res[0]*res[1]), y.flatten()] + center
+        
         ngbdist, ngb = self.tree.query(self.slicegrid,32)
         hgrid = HsmlIter(ngbdist,dim=3,error_norm=1e-3)
         self.sliceweights = Kernel(np.einsum('ij,i->ij',ngbdist, hgrid**-1))
         self.sliceweights = np.einsum('ij,i->ij', self.sliceweights, 1/np.sum(self.sliceweights,axis=1))
-        return np.einsum('ij,ij->i', self.sliceweights, f[ngb]).reshape(res)
+        if len(f.shape)>1:
+            return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res[0],res[1],f.shape[-1]))
+        else:
+            return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res[0],res[1]))
 
 @jit
 def d2weights(dx, w):
