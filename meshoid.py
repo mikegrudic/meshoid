@@ -31,10 +31,12 @@ class meshoid(object):
         self.dweights = None
         self.sliceweights = None
         self.slicegrid = None
-        self.vol = None
-        self.density = None
 
-        if self.h is None: self.TreeUpdate()
+        if self.h is None:
+            self.TreeUpdate()
+        else:
+            self.vol = self.volnorm * self.h**self.dim / self.des_ngb
+            self.density = self.m / self.vol
 
 
     def ComputeDWeights(self):
@@ -49,9 +51,7 @@ class meshoid(object):
         
         dx_matrix = np.linalg.inv(dx_matrix)
         self.dweights = np.einsum('ikl,ijl,ij->ijk',dx_matrix, dx, self.weights)
-        #        self.d2weights = d2weights(dx, self.weights)
-        
-        
+        #        self.d2weights = d2weights(dx, self.weights)        
     
     def TreeUpdate(self):
         if self.dim == 1:
@@ -76,6 +76,23 @@ class meshoid(object):
         self.weights = np.einsum('ij,i->ij',K, 1/np.sum(K,axis=1))
         self.density = self.des_ngb * self.m / (self.volnorm * self.h**self.dim)
         self.vol = self.m / self.density
+
+    def Volumes(self):
+        return self.vol
+
+    def NearestNeighbors(self):
+        if self.ngb is None: self.TreeUpdate()
+        return self.ngb
+
+    def NeighborDistance(self):
+        if self.ngbdist is None: self.TreeUpdate()
+        return self.ngbdist
+
+    def SmoothingLength(self):
+        return self.h
+
+    def Density(self):
+        return self.density
 
     def D(self, f):
         df = DF(f, self.ngb)
