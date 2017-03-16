@@ -7,35 +7,39 @@ from scipy.linalg import inv
 from numba import jit, vectorize, float32, float64
 
 class meshoid(object):
-    def __init__(self, x, masses=None, des_ngb=None, boxsize=None, fixed_h=None):
+    def __init__(self, x, m=None, h=None, des_ngb=None, boxsize=None, verbose=False):
         if len(x.shape)==1:
             x = x[:,None]
 
+        self.verbose = verbose
         self.N, self.dim = x.shape
         if des_ngb==None:
-            if fixed_h == None: 
-                des_ngb = {1: 4, 2: 20, 3:32}[self.dim]
-            
-
-        self.fixed_h = fixed_h
+            des_ngb = {1: 4, 2: 20, 3:32}[self.dim]
+                
         self.des_ngb = des_ngb    
 
         self.volnorm = {1: 2.0, 2: np.pi, 3: 4*np.pi/3}[self.dim]
         self.boxsize = boxsize
-        
-        if masses==None:
-            masses = np.repeat(1./len(x),len(x))
-        self.m = masses
-        self.x = x
-        
-        self.TreeUpdate()
-        
-        self.dweights = None
 
+        if m==None:
+            m = np.repeat(1./len(x),len(x))
+        self.m = m
+        self.x = x
+        self.ngb = None
+        self.h = h
+        self.weights = None
+        self.dweights = None
         self.sliceweights = None
         self.slicegrid = None
+        self.vol = None
+        self.density = None
 
-    def ComputeWeights(self):
+        if self.h is None: self.TreeUpdate()
+
+
+    def ComputeDWeights(self):
+        if self.weights is None: self.TreeUpdate()
+        
         dx = self.x[self.ngb] - self.x[:,None,:]
         self.dx = dx
         if self.boxsize != None:
@@ -45,25 +49,28 @@ class meshoid(object):
         
         dx_matrix = np.linalg.inv(dx_matrix)
         self.dweights = np.einsum('ikl,ijl,ij->ijk',dx_matrix, dx, self.weights)
-        
-#        self.d2weights = d2weights(dx, self.weights)
+        #        self.d2weights = d2weights(dx, self.weights)
         
         
     
     def TreeUpdate(self):
-        if self.fixed_h == None:
-            if self.dim == 1:
-                sort_order = self.x[:,0].argsort()
-                self.ngbdist, self.ngb = NearestNeighbors1D(self.x[:,0][sort_order], self.des_ngb)
-                sort_order = invsort(sort_order)
-                self.ngbdist, self.ngb = self.ngbdist[sort_order][0], self.ngb[sort_order][0]
-            else:                
-                self.tree = cKDTree(self.x, boxsize=self.boxsize)
-                self.ngbdist, self.ngb = self.tree.query(self.x, self.des_ngb)
-            self.h = HsmlIter(self.ngbdist, error_norm=1e-13,dim=self.dim)
-#        else:
-#            self.h = np.repeat(self.fixed_h, len(self.x))
-#            self.ngb = 
+        if self.dim == 1:
+            sort_order = self.x[:,0].argsort()
+            self.ngbdist, self.ngb = NearestNeighbors1D(self.x[:,0][sort_order], self.des_ngb)
+            sort_order = invsort(sort_order)
+            self.ngbdist, self.ngb = self.ngbdist[sort_order][0], self.ngb[sort_order][0]
+        else:
+            if self.verbose: print "Finding nearest neighbours..."
+                
+            self.tree = cKDTree(self.x, boxsize=self.boxsize)
+            self.ngbdist, self.ngb = self.tree.query(self.x, self.des_ngb)
+                
+            if self.verbose: print "Neighbours found!"
+
+        if self.verbose: print "Iterating for smoothing lengths..."
+        self.h = HsmlIter(self.ngbdist, error_norm=1e-13,dim=self.dim)
+        if self.verbose: print "Smoothing lengths found!"
+
         q = np.einsum('i,ij->ij', 1/self.h, self.ngbdist)
         K = Kernel(q)
         self.weights = np.einsum('ij,i->ij',K, 1/np.sum(K,axis=1))
@@ -73,7 +80,7 @@ class meshoid(object):
     def D(self, f):
         df = DF(f, self.ngb)
         if self.dweights is None:
-            self.ComputeWeights()
+            self.ComputeDWeights()
         return np.einsum('ijk,ij->ik',self.dweights,df)
 
 #    def D2(self ,f):
@@ -83,16 +90,22 @@ class meshoid(object):
 #        return np.einsum('ij,ij->i',self.d2weights[:,:,2],df-np.einsum('ik,ijk->ij',self.D(f),self.dx))
     
     def Integrate(self, f):
+        if self.h is None: self.TreeUpdate()
+        elif self.vol is None: self.vol = self.volnorm * self.h**self.dim
         return np.einsum('i,i...->...', self.vol,f)
 
     def KernelVariance(self, f):
+        if self.ngb is None: self.TreeUpdate()
 #        return np.einsum('ij,ij->i', (f[self.ngb] - self.KernelAverage(f)[:,np.newaxis])**2, self.weights)
         return np.std(f[self.ngb], axis=1)
     
     def KernelAverage(self, f):
+        if self.weights is None: self.TreeUpdate()        
         return np.einsum('ij,ij->i',self.weights, f[self.ngb])
 
     def Slice(self, f, size, plane='z', center=np.array([0,0,0]), res=(100,100)):
+        if self.tree is None: self.TreeUpdate()
+        
         if np.array([size]).size ==1:
             size = (size,size)
         x, y = np.linspace(-size[0]/2,size[0]/2,res[0]), np.linspace(-size[1]/2, size[1]/2,res[1])
@@ -113,6 +126,16 @@ class meshoid(object):
         else:
             return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res[0],res[1]))
 
+    def SurfaceDensity(self, f, size, plane='z', center=np.array([0,0,0]), res=(100,100)):
+        if self.h is None: self.TreeUpdate()
+        return GridSurfaceDensity(f, self.x-center, np.clip(self.h, size/res[0],1e100), res[0], size)
+
+    def Projection(self, f, size, plane='z', center=np.array([0,0,0]), res=(100,100)):
+        if self.h is None: self.TreeUpdate()
+        elif self.vol is None: self.vol = self.volnorm * self.h**self.dim
+        return SurfaceDensity(f* self.vol, size, plane=plane, center=center,res=res)
+        
+        
 @jit
 def d2weights(dx, w):
     N = w.shape[0]
@@ -256,13 +279,13 @@ def invsort(index):
         out[index[i]] = i
 
 @jit
-def GridSurfaceDensity(mass, x, h, gridres, rmax):
-    L = rmax*2
+def GridSurfaceDensity(mass, x, h, gridres, L):
+    count = 0
     grid = np.zeros((gridres,gridres))
     dx = L/(gridres-1)
     N = len(x)
     for i in xrange(N):
-        xs = x[i] + rmax
+        xs = x[i] + L/2
         hs = h[i]
         mh2 = mass[i]/hs**2
 
@@ -273,7 +296,8 @@ def GridSurfaceDensity(mass, x, h, gridres, rmax):
         
         for gx in xrange(gxmin, gxmax+1):
             for gy in xrange(gymin,gymax+1):
-                kernel = Kernel2D(((xs[0] - gx*dx)**2 + (xs[1] - gy*dx)**2)**0.5 / hs)
+                kernel = 1.8189136353359467 * Kernel(((xs[0] - gx*dx)**2 + (xs[1] - gy*dx)**2)**0.5 / hs)
                 grid[gx,gy] +=  kernel * mh2
+                count +=1
                 
-    return grid
+    return grid, count
