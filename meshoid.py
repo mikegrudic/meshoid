@@ -20,6 +20,10 @@ class meshoid(object):
 
         self.volnorm = {1: 2.0, 2: np.pi, 3: 4*np.pi/3}[self.dim]
         self.boxsize = boxsize
+        if self.boxsize is None:
+            self.center = np.zeros(3)
+        else:
+            self.center = np.ones(3) * self.boxsize / 2
 
         if m==None:
             m = np.repeat(1./len(x),len(x))
@@ -45,7 +49,7 @@ class meshoid(object):
         dx = self.x[self.ngb] - self.x[:,None,:]
         self.dx = dx
         if self.boxsize != None:
-            Periodicize(dx.ravel(), self.boxsize)
+            PeriodicizeDX(dx.ravel(), self.boxsize)
     
         dx_matrix = np.einsum('ij,ijk,ijl->ikl', self.weights, dx, dx)
         
@@ -77,7 +81,7 @@ class meshoid(object):
         self.density = self.des_ngb * self.m / (self.volnorm * self.h**self.dim)
         self.vol = self.m / self.density
 
-    def Volumes(self):
+    def Volume(self):
         return self.vol
 
     def NearestNeighbors(self):
@@ -120,34 +124,39 @@ class meshoid(object):
         if self.weights is None: self.TreeUpdate()        
         return np.einsum('ij,ij->i',self.weights, f[self.ngb])
 
-    def Slice(self, f, size, plane='z', center=np.array([0,0,0]), res=(100,100)):
+    def Slice(self, f, size, plane='z', center=None, res=100):
+        if center is None: center = self.center
         if self.tree is None: self.TreeUpdate()
         
-        if np.array([size]).size ==1:
-            size = (size,size)
-        x, y = np.linspace(-size[0]/2,size[0]/2,res[0]), np.linspace(-size[1]/2, size[1]/2,res[1])
+        x, y = np.linspace(-size/2,size/2,res), np.linspace(-size/2, size/2,res)
         x, y = np.meshgrid(x, y)
 
-        self.slicegrid = np.c_[x.flatten(), y.flatten(), np.zeros(res[0]*res[1])] + center
+        self.slicegrid = np.c_[x.flatten(), y.flatten(), np.zeros(res*res)] + center
         if plane=='x':
-            self.slicegrid = np.c_[np.zeros(res[0]*res[1]), x.flatten(), y.flatten()] + center
+            self.slicegrid = np.c_[np.zeros(res*res), x.flatten(), y.flatten()] + center
         elif plane=='y':
-            self.slicegrid = np.c_[x.flatten(), np.zeros(res[0]*res[1]), y.flatten()] + center
+            self.slicegrid = np.c_[x.flatten(), np.zeros(res*res), y.flatten()] + center
         
         ngbdist, ngb = self.tree.query(self.slicegrid,32)
         hgrid = HsmlIter(ngbdist,dim=3,error_norm=1e-3)
         self.sliceweights = Kernel(np.einsum('ij,i->ij',ngbdist, hgrid**-1))
         self.sliceweights = np.einsum('ij,i->ij', self.sliceweights, 1/np.sum(self.sliceweights,axis=1))
         if len(f.shape)>1:
-            return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res[0],res[1],f.shape[-1]))
+            return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res,res,f.shape[-1]))
         else:
-            return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res[0],res[1]))
+            return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res,res))
 
-    def SurfaceDensity(self, f, size, plane='z', center=np.array([0,0,0]), res=(100,100)):
-        if self.h is None: self.TreeUpdate()
-        return GridSurfaceDensity(f, self.x-center, np.clip(self.h, size/res[0],1e100), res[0], size)
+    def SurfaceDensity(self, f, size, plane='z', center=None, res=128):
+        if center is None: center = self.center
+        if self.boxsize is None:
+            return GridSurfaceDensity(f, self.x-center, np.clip(self.h, size/res,1e100), res, size)
+        else:
+            return GridSurfaceDensityPeriodic(f, (self.x-center) % self.boxsize, np.clip(self.h, size/res,1e100), res, size, self.boxsize)
 
-    def Projection(self, f, size, plane='z', center=np.array([0,0,0]), res=(100,100)):
+#    def ProjectedAverage(self, f, size, plane='z', center=np.array([0,0,0]), res=128):
+
+    def Projection(self, f, size, plane='z', center=None, res=128):
+        if center is None: center = self.center
         if self.h is None: self.TreeUpdate()
         elif self.vol is None: self.vol = self.volnorm * self.h**self.dim
         return SurfaceDensity(f* self.vol, size, plane=plane, center=center,res=res)
@@ -247,7 +256,7 @@ def DF(f, ngb):
     return df
     
 @jit
-def Periodicize(dx, boxsize):
+def PeriodicizeDX(dx, boxsize):
     for i in xrange(dx.size):
         if np.abs(dx[i]) > boxsize/2:
             dx[i] = -np.sign(dx[i])*(boxsize - np.abs(dx[i]))
@@ -297,7 +306,7 @@ def invsort(index):
 
 @jit
 def GridSurfaceDensity(mass, x, h, gridres, L):
-    count = 0
+#    count = 0
     grid = np.zeros((gridres,gridres))
     dx = L/(gridres-1)
     N = len(x)
@@ -315,6 +324,37 @@ def GridSurfaceDensity(mass, x, h, gridres, L):
             for gy in xrange(gymin,gymax+1):
                 kernel = 1.8189136353359467 * Kernel(((xs[0] - gx*dx)**2 + (xs[1] - gy*dx)**2)**0.5 / hs)
                 grid[gx,gy] +=  kernel * mh2
-                count +=1
+#                count += 1
                 
-    return grid, count
+    return grid
+
+@jit
+def GridSurfaceDensityPeriodic(mass, x, h, gridres, L, boxsize):
+    x = (x+L/2)%boxsize
+    grid = np.zeros((gridres,gridres))
+    dx = L/(gridres-1)
+    N = len(x)
+
+    b2 = boxsize/2
+    for i in xrange(N):
+        xs = x[i]
+        hs = h[i]
+        mh2 = mass[i]/hs**2
+
+        gxmin = int((xs[0] - hs)/dx + 1)
+        gxmax = int((xs[0] + hs)/dx)
+        gymin = int((xs[1] - hs)/dx + 1)
+        gymax = int((xs[1] + hs)/dx)
+        
+        for gx in xrange(gxmin, gxmax+1):
+            ix = gx%gridres
+            for gy in xrange(gymin,gymax+1):
+                iy = gy%gridres
+                delta_x = np.abs(xs[0] - ix*dx)
+                if b2 < delta_x: delta_x -= boxsize
+                delta_y = np.abs(xs[1] - iy*dx)
+                if b2 < delta_y: delta_y -= boxsize
+                kernel = 1.8189136353359467 * Kernel((delta_x**2 + delta_y**2)**0.5 / hs)
+                grid[ix,iy] +=  kernel * mh2
+                 
+    return grid
