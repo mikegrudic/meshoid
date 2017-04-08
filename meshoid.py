@@ -5,6 +5,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 from scipy.linalg import inv
 from numba import jit, vectorize, float32, float64
+import h5py
 
 class meshoid(object):
     def __init__(self, x, m=None, h=None, des_ngb=None, boxsize=None, verbose=False):
@@ -20,15 +21,18 @@ class meshoid(object):
 
         self.volnorm = {1: 2.0, 2: np.pi, 3: 4*np.pi/3}[self.dim]
         self.boxsize = boxsize
+        self.x = x
         if self.boxsize is None:
-            self.center = np.zeros(3)
+            self.center = np.average(self.x, axis=0)
+            self.L = 2*np.percentile(np.sum((x-self.center)**2,axis=1),90)**0.5
         else:
             self.center = np.ones(3) * self.boxsize / 2
-
-        if m==None:
+            self.L = self.boxsize
+            
+        if m is None:
             m = np.repeat(1./len(x),len(x))
         self.m = m
-        self.x = x
+
         self.ngb = None
         self.h = h
         self.weights = None
@@ -99,10 +103,11 @@ class meshoid(object):
         return self.density
 
     def D(self, f):
+        if self.ngb is None: self.TreeUpdate()
         df = DF(f, self.ngb)
         if self.dweights is None:
             self.ComputeDWeights()
-        return np.einsum('ijk,ij->ik',self.dweights,df)
+        return np.einsum('ijk,ij...->i...k',self.dweights,df)
 
 #    def D2(self ,f):
 #        df = DF(f, self.ngb)
@@ -124,8 +129,9 @@ class meshoid(object):
         if self.weights is None: self.TreeUpdate()        
         return np.einsum('ij,ij->i',self.weights, f[self.ngb])
 
-    def Slice(self, f, size, plane='z', center=None, res=100):
+    def Slice(self, f, size=None, plane='z', center=None, res=100):
         if center is None: center = self.center
+        if size is None: size = self.L
         if self.tree is None: self.TreeUpdate()
         
         x, y = np.linspace(-size/2,size/2,res), np.linspace(-size/2, size/2,res)
@@ -146,21 +152,54 @@ class meshoid(object):
         else:
             return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res,res))
 
-    def SurfaceDensity(self, f, size, plane='z', center=None, res=128):
+    def SurfaceDensity(self, f, size=None, plane='z', center=None, res=128):
         if center is None: center = self.center
-        if self.boxsize is None:
-            return GridSurfaceDensity(f, self.x-center, np.clip(self.h, size/res,1e100), res, size)
+        if size is None: size = self.L
+#        if self.boxsize is None:
+        return GridSurfaceDensity(f, self.x-center, np.clip(self.h, 2*size/res,1e100), res, size)
+        #else:
+#            return GridSurfaceDensityPeriodic(f, (self.x-center) % self.boxsize, np.clip(self.h, size/res,1e100), res, size, self.boxsize)
+
+    def ProjectedAverage(self, f, size=None, plane='z', center=None, res=128):
+        if size is None: size = self.L
+        if center is None: center = self.center
+        return GridAverage(f, self.x-center, np.clip(self.h, size/res,1e100), res, size)
+
+    def Projection(self, f, size=None, plane='z', center=None, res=128):
+        if size is None: size = self.L
+        if center is None: center = self.center
+        return SurfaceDensity(f * self.vol, size, plane=plane, center=center,res=res)
+
+    def KDE(self, grid, bandwidth=None):
+        if bandwidth is None:
+            bandwidth = self.SmoothingLength()
+
+        f = np.zeros_like(grid)
+        gtree = cKDTree(np.c_[grid,])
+        for d, bw in zip(self.x, bandwidth):
+            ngb = gtree.query_ball_bount(d, bw)
+            ngbdist = np.abs(grid[ngb] - d)
+            f[ngb] += Kernel(ngbdist/bw) / bw * 4./3
+            
+        return f
+
+def FromSnapshot(F, ptype=None):
+    meshoids = {}
+    for k in F.keys()[1:]:
+        x = np.array(F[k]["Coordinates"])
+        m = np.array(F[k]["Masses"])
+        if "SmoothingLength" in F[k].keys():
+            h = np.array(F[k]["SmoothingLength"])
+        elif "AGS-Softening" in F[k].keys():
+            h = np.array(F[k]["AGS-Softening"])
         else:
-            return GridSurfaceDensityPeriodic(f, (self.x-center) % self.boxsize, np.clip(self.h, size/res,1e100), res, size, self.boxsize)
-
-#    def ProjectedAverage(self, f, size, plane='z', center=np.array([0,0,0]), res=128):
-
-    def Projection(self, f, size, plane='z', center=None, res=128):
-        if center is None: center = self.center
-        if self.h is None: self.TreeUpdate()
-        elif self.vol is None: self.vol = self.volnorm * self.h**self.dim
-        return SurfaceDensity(f* self.vol, size, plane=plane, center=center,res=res)
+            h = None
+        boxsize = F["Header"].attrs["BoxSize"]
+        if ptype is None:
+            meshoids[k] = meshoid(x, m, h)
+        else: return meshoid(x,m,h)
         
+    return meshoids
         
 @jit
 def d2weights(dx, w):
@@ -249,7 +288,10 @@ def Kernel(q):
         
 @jit
 def DF(f, ngb):
-    df = np.empty(ngb.shape)
+    if len(f.shape) > 1:
+        df = np.empty((ngb.shape[0],ngb.shape[1], f.shape[1]))
+    else:
+        df = np.empty(ngb.shape)
     for i in xrange(ngb.shape[0]):
         for j in xrange(ngb.shape[1]):
             df[i,j] = f[ngb[i,j]] - f[i]
@@ -329,7 +371,34 @@ def GridSurfaceDensity(mass, x, h, gridres, L):
     return grid
 
 @jit
-def GridSurfaceDensityPeriodic(mass, x, h, gridres, L, boxsize):
+def GridAverage(f, x, h, gridres, L):
+#    count = 0
+    grid1 = np.zeros((gridres,gridres))
+    grid2 = np.zeros((gridres,gridres))
+    dx = L/(gridres-1)
+    N = len(x)
+    for i in xrange(N):
+        xs = x[i] + L/2
+        hs = h[i]
+        mh2 = hs**-2
+        fi = f[i]
+
+        gxmin = max(int((xs[0] - hs)/dx+1),0)
+        gxmax = min(int((xs[0] + hs)/dx),gridres-1)
+        gymin = max(int((xs[1] - hs)/dx+1), 0)
+        gymax = min(int((xs[1] + hs)/dx), gridres-1)
+        
+        for gx in xrange(gxmin, gxmax+1):
+            for gy in xrange(gymin,gymax+1):
+                kernel = 1.8189136353359467 * Kernel(((xs[0] - gx*dx)**2 + (xs[1] - gy*dx)**2)**0.5 / hs)
+                grid1[gx,gy] +=  kernel * mh2
+                grid2[gx,gy] +=  fi * kernel * mh2
+#                count += 1
+
+    return grid2/grid1
+
+@jit
+def GridSurfaceDensityPeriodic(mass, x, h, gridres, L, boxsize): # need to fix this
     x = (x+L/2)%boxsize
     grid = np.zeros((gridres,gridres))
     dx = L/(gridres-1)
