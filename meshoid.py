@@ -129,7 +129,7 @@ class meshoid(object):
         if self.weights is None: self.TreeUpdate()        
         return np.einsum('ij,ij->i',self.weights, f[self.ngb])
 
-    def Slice(self, f, size=None, plane='z', center=None, res=100):
+    def Slice(self, f, size=None, plane='z', center=None, res=100, gridngb=32):
         if center is None: center = self.center
         if size is None: size = self.L
         if self.tree is None: self.TreeUpdate()
@@ -143,7 +143,7 @@ class meshoid(object):
         elif plane=='y':
             self.slicegrid = np.c_[x.flatten(), np.zeros(res*res), y.flatten()] + center
         
-        ngbdist, ngb = self.tree.query(self.slicegrid,32)
+        ngbdist, ngb = self.tree.query(self.slicegrid,gridngb)
         hgrid = HsmlIter(ngbdist,dim=3,error_norm=1e-3)
         self.sliceweights = Kernel(np.einsum('ij,i->ij',ngbdist, hgrid**-1))
         self.sliceweights = np.einsum('ij,i->ij', self.sliceweights, 1/np.sum(self.sliceweights,axis=1))
@@ -152,11 +152,11 @@ class meshoid(object):
         else:
             return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res,res))
 
-    def SurfaceDensity(self, f, size=None, plane='z', center=None, res=128):
+    def SurfaceDensity(self, f, size=None, plane='z', center=None, res=128, smooth_fac=1.):
         if center is None: center = self.center
         if size is None: size = self.L
 #        if self.boxsize is None:
-        return GridSurfaceDensity(f, self.x-center, np.clip(self.h, 2*size/res,1e100), res, size)
+        return GridSurfaceDensity(f, self.x-center, np.clip(smooth_fac*self.h, 2*size/res,1e100), res, size)
         #else:
 #            return GridSurfaceDensityPeriodic(f, (self.x-center) % self.boxsize, np.clip(self.h, size/res,1e100), res, size, self.boxsize)
 
@@ -177,7 +177,7 @@ class meshoid(object):
         f = np.zeros_like(grid)
         gtree = cKDTree(np.c_[grid,])
         for d, bw in zip(self.x, bandwidth):
-            ngb = gtree.query_ball_bount(d, bw)
+            ngb = gtree.query_ball_point(d, bw)
             ngbdist = np.abs(grid[ngb] - d)
             f[ngb] += Kernel(ngbdist/bw) / bw * 4./3
             
@@ -196,8 +196,8 @@ def FromSnapshot(F, ptype=None):
             h = None
         boxsize = F["Header"].attrs["BoxSize"]
         if ptype is None:
-            meshoids[k] = meshoid(x, m, h)
-        else: return meshoid(x,m,h)
+            meshoids[k] = meshoid(x, m, h, boxsize=boxsize)
+        else: return meshoid(x,m,h,boxsize=boxsize)
         
     return meshoids
         
