@@ -63,18 +63,18 @@ class meshoid(object):
         self.A = ComputeFaces(self.ngb,self.invngb, self.vol, self.dweights)
 
     def TreeUpdate(self):
-        if self.verbose: print "Finding nearest neighbours..."
+        if self.verbose: print("Finding nearest neighbours...")
                 
         self.tree = cKDTree(self.x, boxsize=self.boxsize)
         self.ngbdist, self.ngb = self.tree.query(self.x, self.des_ngb)
                 
-        if self.verbose: print "Neighbours found!"
+        if self.verbose: print("Neighbours found!")
 
         self.invngb = invngb(self.ngb)
 
-        if self.verbose: print "Iterating for smoothing lengths..."
+        if self.verbose: print("Iterating for smoothing lengths...")
         self.h = HsmlIter(self.ngbdist, error_norm=1e-13,dim=self.dim)
-        if self.verbose: print "Smoothing lengths found!"
+        if self.verbose: print("Smoothing lengths found!")
 
         q = np.einsum('i,ij->ij', 1/self.h, self.ngbdist)
         K = Kernel(q)
@@ -179,12 +179,12 @@ class meshoid(object):
 
 def FromSnapshot(F, ptype=None):
     meshoids = {}
-    for k in F.keys()[1:]:
+    for k in list(F.keys())[1:]:
         x = np.array(F[k]["Coordinates"])
         m = np.array(F[k]["Masses"])
-        if "SmoothingLength" in F[k].keys():
+        if "SmoothingLength" in list(F[k].keys()):
             h = np.array(F[k]["SmoothingLength"])
-        elif "AGS-Softening" in F[k].keys():
+        elif "AGS-Softening" in list(F[k].keys()):
             h = np.array(F[k]["AGS-Softening"])
         else:
             h = None
@@ -206,11 +206,11 @@ def d2weights(dx, w):
 
     dx2 = np.empty((N, Nngb,N2))
     d2weights = np.zeros((N,Nngb, N2))
-    for i in xrange(N):
-        for j in xrange(Nngb):
+    for i in range(N):
+        for j in range(Nngb):
             weight = w[i,j]
-            for k in xrange(dim):
-                for l in xrange(dim):
+            for k in range(dim):
+                for l in range(dim):
                     if l < k: continue
                     n = (dim-1)*k + l
                     #if l==k:
@@ -218,17 +218,17 @@ def d2weights(dx, w):
                     #else:
                      #   dx2[i, j,n] = dx[i,j,k]*dx[i,j,l]
             
-            for p in xrange(N2):
-                for q in xrange(N2):
+            for p in range(N2):
+                for q in range(N2):
                     M[i,p,q] += weight * dx2[i,j,p] * dx2[i,j,q]
                     
     M = np.linalg.inv(M)
     
-    for i in xrange(N):
-        for j in xrange(Nngb):
+    for i in range(N):
+        for j in range(Nngb):
             weight = w[i,j]
-            for p in xrange(N2):
-                for q in xrange(N2):
+            for p in range(N2):
+                for q in range(N2):
                     d2weights[i,j,p] += M[i,p,q] * dx2[i,j,q] * weight
 
     return d2weights
@@ -247,7 +247,7 @@ def HsmlIter(neighbor_dists,  dim=3, error_norm=1e-6):
     hsml = np.zeros(N)
     n_ngb = 0.0
     bound_coeff = (1./(1-(2*norm)**(-1./3)))
-    for i in xrange(N):
+    for i in range(N):
         upper = neighbor_dists[i,des_ngb-1] * bound_coeff
         lower = neighbor_dists[i,1]
         error = 1e100
@@ -257,7 +257,7 @@ def HsmlIter(neighbor_dists,  dim=3, error_norm=1e-6):
             n_ngb=0.0
             dngb=0.0
             q = 0.0
-            for j in xrange(des_ngb):
+            for j in range(des_ngb):
                 q = neighbor_dists[i, j]/h
                 if q <= 0.5:
                     n_ngb += (1 - 6*q**2 + 6*q**3)
@@ -286,24 +286,24 @@ def DF(f, ngb):
         df = np.empty((ngb.shape[0],ngb.shape[1], f.shape[1]))
     else:
         df = np.empty(ngb.shape)
-    for i in xrange(ngb.shape[0]):
-        for j in xrange(ngb.shape[1]):
+    for i in range(ngb.shape[0]):
+        for j in range(ngb.shape[1]):
             df[i,j] = f[ngb[i,j]] - f[i]
     return df
     
 @jit
 def PeriodicizeDX(dx, boxsize):
-    for i in xrange(dx.size):
+    for i in range(dx.size):
         if np.abs(dx[i]) > boxsize/2:
             dx[i] = -np.sign(dx[i])*(boxsize - np.abs(dx[i]))
 
 @jit
 def invngb(ngb):
     result = np.empty_like(ngb)
-    for i in xrange(len(ngb)):
+    for i in range(len(ngb)):
         ngbi = ngb[i]
-        for j in xrange(ngb.shape[1]):
-            for k in xrange(ngb.shape[1]):
+        for j in range(ngb.shape[1]):
+            for k in range(ngb.shape[1]):
                 if ngb[ngbi[j],k]==i:
                     result[i,j]=k
                     break
@@ -316,7 +316,7 @@ def NearestNeighbors1D(x, des_ngb):
     N = len(x)
     neighbor_dists = np.empty((N,des_ngb))
     neighbors = np.empty((N,des_ngb),dtype=np.int64)
-    for i in xrange(N):
+    for i in range(N):
         x0 = x[i]
         left = 0
 #        if i == N-1:
@@ -351,7 +351,7 @@ def NearestNeighbors1D(x, des_ngb):
 @jit
 def invsort(index):
     out = np.empty_like(index)
-    for i in xrange(len(index)):
+    for i in range(len(index)):
         out[index[i]] = i
 
 @jit
@@ -360,7 +360,7 @@ def GridSurfaceDensity(mass, x, h, gridres, L):
     grid = np.zeros((gridres,gridres))
     dx = L/(gridres-1)
     N = len(x)
-    for i in xrange(N):
+    for i in range(N):
         xs = x[i] + L/2
         hs = h[i]
         mh2 = mass[i]/hs**2
@@ -370,8 +370,8 @@ def GridSurfaceDensity(mass, x, h, gridres, L):
         gymin = max(int((xs[1] - hs)/dx+1), 0)
         gymax = min(int((xs[1] + hs)/dx), gridres-1)
         
-        for gx in xrange(gxmin, gxmax+1):
-            for gy in xrange(gymin,gymax+1):
+        for gx in range(gxmin, gxmax+1):
+            for gy in range(gymin,gymax+1):
                 kernel = 1.8189136353359467 * Kernel(((xs[0] - gx*dx)**2 + (xs[1] - gy*dx)**2)**0.5 / hs)
                 grid[gx,gy] +=  kernel * mh2
 #                count += 1
@@ -385,7 +385,7 @@ def GridAverage(f, x, h, gridres, L):
     grid2 = np.zeros((gridres,gridres))
     dx = L/(gridres-1)
     N = len(x)
-    for i in xrange(N):
+    for i in range(N):
         xs = x[i] + L/2
         hs = h[i]
         mh2 = hs**-2
@@ -396,8 +396,8 @@ def GridAverage(f, x, h, gridres, L):
         gymin = max(int((xs[1] - hs)/dx+1), 0)
         gymax = min(int((xs[1] + hs)/dx), gridres-1)
         
-        for gx in xrange(gxmin, gxmax+1):
-            for gy in xrange(gymin,gymax+1):
+        for gx in range(gxmin, gxmax+1):
+            for gy in range(gymin,gymax+1):
                 kernel = 1.8189136353359467 * Kernel(((xs[0] - gx*dx)**2 + (xs[1] - gy*dx)**2)**0.5 / hs)
                 grid1[gx,gy] +=  kernel * mh2
                 grid2[gx,gy] +=  fi * kernel * mh2
@@ -414,7 +414,7 @@ def GridSurfaceDensityPeriodic(mass, x, h, gridres, L, boxsize): # need to fix t
     N = len(x)
 
     b2 = boxsize/2
-    for i in xrange(N):
+    for i in range(N):
         xs = x[i]
         hs = h[i]
         mh2 = mass[i]/hs**2
@@ -424,9 +424,9 @@ def GridSurfaceDensityPeriodic(mass, x, h, gridres, L, boxsize): # need to fix t
         gymin = int((xs[1] - hs)/dx + 1)
         gymax = int((xs[1] + hs)/dx)
         
-        for gx in xrange(gxmin, gxmax+1):
+        for gx in range(gxmin, gxmax+1):
             ix = gx%gridres
-            for gy in xrange(gymin,gymax+1):
+            for gy in range(gymin,gymax+1):
                 iy = gy%gridres
                 delta_x = np.abs(xs[0] - ix*dx)
                 if b2 < delta_x: delta_x -= boxsize
@@ -441,8 +441,8 @@ def GridSurfaceDensityPeriodic(mass, x, h, gridres, L, boxsize): # need to fix t
 def ComputeFaces(ngb, ingb, vol, dweights):
     N, Nngb, dim = dweights.shape
     result = np.zeros_like(dweights)
-    for i in xrange(N):
-        for j in xrange(Nngb):
+    for i in range(N):
+        for j in range(Nngb):
             result[i,j] += vol[i] * dweights[i,j]
             if ingb[i,j] > -1: result[ngb[i,j],ingb[i,j]] -= vol[i] * dweights[i,j]
     return result
