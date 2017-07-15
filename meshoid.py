@@ -60,20 +60,17 @@ class meshoid(object):
         dx_matrix = np.linalg.inv(dx_matrix)
         self.dweights = np.einsum('ikl,ijl,ij->ijk',dx_matrix, dx, self.weights)
         #        self.d2weights = d2weights(dx, self.weights)        
-    
+        self.A = ComputeFaces(self.ngb,self.invngb, self.vol, self.dweights)
+
     def TreeUpdate(self):
-        if self.dim == 1:
-            sort_order = self.x[:,0].argsort()
-            self.ngbdist, self.ngb = NearestNeighbors1D(self.x[:,0][sort_order], self.des_ngb)
-            sort_order = invsort(sort_order)
-            self.ngbdist, self.ngb = self.ngbdist[sort_order][0], self.ngb[sort_order][0]
-        else:
-            if self.verbose: print "Finding nearest neighbours..."
+        if self.verbose: print "Finding nearest neighbours..."
                 
-            self.tree = cKDTree(self.x, boxsize=self.boxsize)
-            self.ngbdist, self.ngb = self.tree.query(self.x, self.des_ngb)
+        self.tree = cKDTree(self.x, boxsize=self.boxsize)
+        self.ngbdist, self.ngb = self.tree.query(self.x, self.des_ngb)
                 
-            if self.verbose: print "Neighbours found!"
+        if self.verbose: print "Neighbours found!"
+
+        self.invngb = invngb(self.ngb)
 
         if self.verbose: print "Iterating for smoothing lengths..."
         self.h = HsmlIter(self.ngbdist, error_norm=1e-13,dim=self.dim)
@@ -84,6 +81,8 @@ class meshoid(object):
         self.weights = np.einsum('ij,i->ij',K, 1/np.sum(K,axis=1))
         self.density = self.des_ngb * self.m / (self.volnorm * self.h**self.dim)
         self.vol = self.m / self.density
+        
+#        self.A = ComputeFaces(self.ngb, self.vol, self.dweights)
 
     def Volume(self):
         return self.vol
@@ -109,11 +108,6 @@ class meshoid(object):
             self.ComputeDWeights()
         return np.einsum('ijk,ij...->i...k',self.dweights,df)
 
-#    def D2(self ,f):
-#        df = DF(f, self.ngb)
-#        if self.d2weights==None:
-#            self.ComputeWeights()
-#        return np.einsum('ij,ij->i',self.d2weights[:,:,2],df-np.einsum('ik,ijk->ij',self.D(f),self.dx))
     
     def Integrate(self, f):
         if self.h is None: self.TreeUpdate()
@@ -304,6 +298,20 @@ def PeriodicizeDX(dx, boxsize):
             dx[i] = -np.sign(dx[i])*(boxsize - np.abs(dx[i]))
 
 @jit
+def invngb(ngb):
+    result = np.empty_like(ngb)
+    for i in xrange(len(ngb)):
+        ngbi = ngb[i]
+        for j in xrange(ngb.shape[1]):
+            for k in xrange(ngb.shape[1]):
+                if ngb[ngbi[j],k]==i:
+                    result[i,j]=k
+                    break
+                if k==ngb.shape[1]-1: result[i,j]=-1
+    return result
+
+
+@jit
 def NearestNeighbors1D(x, des_ngb):
     N = len(x)
     neighbor_dists = np.empty((N,des_ngb))
@@ -396,7 +404,8 @@ def GridAverage(f, x, h, gridres, L):
 #                count += 1
 
     return grid2/grid1
-
+   
+   
 @jit
 def GridSurfaceDensityPeriodic(mass, x, h, gridres, L, boxsize): # need to fix this
     x = (x+L/2)%boxsize
@@ -427,3 +436,13 @@ def GridSurfaceDensityPeriodic(mass, x, h, gridres, L, boxsize): # need to fix t
                 grid[ix,iy] +=  kernel * mh2
                  
     return grid
+
+@jit
+def ComputeFaces(ngb, ingb, vol, dweights):
+    N, Nngb, dim = dweights.shape
+    result = np.zeros_like(dweights)
+    for i in xrange(N):
+        for j in xrange(Nngb):
+            result[i,j] += vol[i] * dweights[i,j]
+            if ingb[i,j] > -1: result[ngb[i,j],ingb[i,j]] -= vol[i] * dweights[i,j]
+    return result
