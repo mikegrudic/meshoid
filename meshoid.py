@@ -111,6 +111,9 @@ class meshoid(object):
     def Curl(self, v):
         dv = self.D(v)
         return np.c_[dv[:,1,2]-dv[:,2,1], dv[:,0,2]-dv[:,2,0], dv[:,0,1] - dv[:,1,0]]
+    def Div(self, v):
+        dv = self.D(v)
+        return dv[:,0,0]+dv[:,1,1] + dv[:,2,2]
     
     def Integrate(self, f):
         if self.h is None: self.TreeUpdate()
