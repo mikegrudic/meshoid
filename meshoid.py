@@ -152,7 +152,8 @@ class meshoid(object):
         else:
             return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res,res))
 
-    def SurfaceDensity(self, f, size=None, plane='z', center=None, res=128, smooth_fac=1.):
+    def SurfaceDensity(self, f=None, size=None, plane='z', center=None, res=128, smooth_fac=1.):
+        if f is None: f = self.m
         if center is None: center = self.center
         if size is None: size = self.L
 #        if self.boxsize is None:
