@@ -191,7 +191,9 @@ class meshoid(object):
 def FromSnapshot(filename, ptype=None):
     F = h5py.File(filename)
     meshoids = {}
-    for k in list(F.keys())[1:]:
+    if ptype is None: types = list(F.keys())[1:]
+    else: types = ["PartType%d"%ptype,]
+    for k in types:
         x = np.array(F[k]["Coordinates"])
         m = np.array(F[k]["Masses"])
         if "SmoothingLength" in list(F[k].keys()):

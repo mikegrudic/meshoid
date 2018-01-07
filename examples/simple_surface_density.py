@@ -35,13 +35,16 @@ def MakePlot(f):
     limits = arguments["--limits"]
     if limits:
         limits = np.array([np.log10(float(c)) for c in re.split(',', limits)])
+    else:
+        limits = None
     ptype = int(float(arguments["--ptype"]))
+    print(ptype)
     res = int(float(arguments["--res"]))
     cmap = arguments["--cmap"]
     
     M = FromSnapshot(f, ptype)
     sigma = M.SurfaceDensity(size=2*rmax, center=center, plane=plane, res=res)
-    if not limits:
+    if limits is None:
         limits = np.log10(np.percentile(sigma.flatten(),[0.1,99.9]))
         
     plt.imsave(f.replace(".hdf5",".png"), np.log10(sigma), vmin=limits[0], vmax=limits[1], cmap=cmap)
