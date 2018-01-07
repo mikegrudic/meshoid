@@ -184,7 +184,8 @@ class meshoid(object):
             
         return f
 
-def FromSnapshot(F, ptype=None):
+def FromSnapshot(filename, ptype=None):
+    F = h5py.File(filename)
     meshoids = {}
     for k in list(F.keys())[1:]:
         x = np.array(F[k]["Coordinates"])
@@ -199,7 +200,7 @@ def FromSnapshot(F, ptype=None):
         if ptype is None:
             meshoids[k] = meshoid(x, m, h, boxsize=boxsize)
         else: return meshoid(x,m,h,boxsize=boxsize)
-        
+    F.close()
     return meshoids
         
 @jit
