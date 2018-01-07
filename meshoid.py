@@ -196,10 +196,10 @@ def FromSnapshot(filename, ptype=None):
             h = np.array(F[k]["AGS-Softening"])
         else:
             h = None
-        boxsize = F["Header"].attrs["BoxSize"]
+        #boxsize = F["Header"].attrs["BoxSize"]
         if ptype is None:
-            meshoids[k] = meshoid(x, m, h, boxsize=boxsize)
-        else: return meshoid(x,m,h,boxsize=boxsize)
+            meshoids[k] = meshoid(x, m, h)
+        else: return meshoid(x,m,h)
     F.close()
     return meshoids
         
