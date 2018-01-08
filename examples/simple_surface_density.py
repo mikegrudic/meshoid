@@ -34,7 +34,7 @@ def MakePlot(f):
     center = np.array([float(c) for c in re.split(',', arguments["--c"])])
     limits = arguments["--limits"]
     if limits:
-        limits = np.array([np.log10(float(c)) for c in re.split(',', limits)])
+        limits = np.array([float(c) for c in re.split(',', limits)])
     else:
         limits = None
     ptype = int(float(arguments["--ptype"]))
@@ -44,9 +44,11 @@ def MakePlot(f):
     
     M = FromSnapshot(f, ptype)
     sigma = M.SurfaceDensity(size=2*rmax, center=center, plane=plane, res=res)
+    sigma = np.clip(sigma, limits[0], limits[1])
+    
     if limits is None:
         limits = np.log10(np.percentile(sigma.flatten(),[0.1,99.9]))
         
-    plt.imsave(f.replace(".hdf5",".png"), np.log10(sigma), vmin=limits[0], vmax=limits[1], cmap=cmap)
+    plt.imsave(f.replace(".hdf5",".png"), np.log10(sigma), vmin=np.log10(limits[0]), vmax=np.log10(limits[1]), cmap=cmap)
 
 for f in filenames: MakePlot(f)
