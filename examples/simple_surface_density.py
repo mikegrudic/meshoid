@@ -44,11 +44,11 @@ def MakePlot(f):
     
     M = FromSnapshot(f, ptype)
     sigma = M.SurfaceDensity(size=2*rmax, center=center, plane=plane, res=res)
-    sigma = np.clip(sigma, limits[0], limits[1])
     
     if limits is None:
-        limits = np.log10(np.percentile(sigma.flatten(),[0.1,99.9]))
+        limits = np.percentile(sigma.flatten(),[0.1,99.9])
+    sigma = np.clip(sigma, limits[0], limits[1])
         
-    plt.imsave(f.replace(".hdf5",".png"), np.log10(sigma), vmin=np.log10(limits[0]), vmax=np.log10(limits[1]), cmap=cmap)
+    plt.imsave(f.replace(".hdf5",".png"), np.log(sigma), vmin=np.log(limits[0]), vmax=np.log(limits[1]), cmap=cmap)
 
 for f in filenames: MakePlot(f)
