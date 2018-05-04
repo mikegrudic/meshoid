@@ -4,7 +4,7 @@
 import numpy as np
 from scipy.spatial import cKDTree
 from scipy.linalg import inv
-from numba import jit, vectorize, float32, float64
+from numba import jit, vectorize, float32, float64, njit
 import h5py
 
 class meshoid(object):
@@ -144,9 +144,12 @@ class meshoid(object):
             self.slicegrid = np.c_[x.flatten(), np.zeros(res*res), y.flatten()] + center
         
         ngbdist, ngb = self.tree.query(self.slicegrid,gridngb)
-        hgrid = HsmlIter(ngbdist,dim=3,error_norm=1e-3)
-        self.sliceweights = Kernel(np.einsum('ij,i->ij',ngbdist, hgrid**-1))
-        self.sliceweights = np.einsum('ij,i->ij', self.sliceweights, 1/np.sum(self.sliceweights,axis=1))
+        if gridngb > 1:
+            hgrid = HsmlIter(ngbdist,dim=3,error_norm=1e-3)
+            self.sliceweights = Kernel(np.einsum('ij,i->ij',ngbdist, hgrid**-1))
+            self.sliceweights = np.einsum('ij,i->ij', self.sliceweights, 1/np.sum(self.sliceweights,axis=1))
+        else:
+            self.sliceweights = np.ones(ngbdist.shape)
         if len(f.shape)>1:
             return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res,res,f.shape[-1]))
         else:
@@ -166,10 +169,10 @@ class meshoid(object):
         if center is None: center = self.center
         return GridAverage(f, self.x-center, np.clip(self.h, size/res,1e100), res, size)
 
-    def Projection(self, f, size=None, plane='z', center=None, res=128):
+    def Projection(self, f, size=None, plane='z', center=None, res=128, smooth_fac=1.):
         if size is None: size = self.L
         if center is None: center = self.center
-        return SurfaceDensity(f * self.vol, size, plane=plane, center=center,res=res)
+        return GridSurfaceDensity(f * self.vol, self.x-center, np.clip(smooth_fac*self.h, 2*size/res,1e100), res, size) #GridSurfaceDensity(f * self.vol, size, plane=plane, center=center,res=res)
 
     def KDE(self, grid, bandwidth=None):
         if bandwidth is None:
@@ -405,7 +408,7 @@ def GridAverage(f, x, h, gridres, L):
         
         for gx in range(gxmin, gxmax+1):
             for gy in range(gymin,gymax+1):
-                kernel = 1.8189136353359467 * Kernel(((xs[0] - gx*dx)**2 + (xs[1] - gy*dx)**2)**0.5 / hs)
+                kernel = 1.8189136353359467 * Kernel(np.sqrt((xs[0] - gx*dx)**2 + (xs[1] - gy*dx)**2) / hs)
                 grid1[gx,gy] +=  kernel * mh2
                 grid2[gx,gy] +=  fi * kernel * mh2
 #                count += 1
