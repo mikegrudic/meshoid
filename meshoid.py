@@ -9,6 +9,7 @@ import h5py
 
 class meshoid(object):
     def __init__(self, x, m=None, h=None, des_ngb=None, boxsize=None, verbose=False):
+        self.tree=None
         if len(x.shape)==1:
             x = x[:,None]
 
@@ -130,6 +131,7 @@ class meshoid(object):
         return np.einsum('ij,ij->i',self.weights, f[self.ngb])
 
     def Slice(self, f, size=None, plane='z', center=None, res=100, gridngb=32):
+        
         if center is None: center = self.center
         if size is None: size = self.L
         if self.tree is None: self.TreeUpdate()
@@ -144,12 +146,20 @@ class meshoid(object):
             self.slicegrid = np.c_[x.flatten(), np.zeros(res*res), y.flatten()] + center
         
         ngbdist, ngb = self.tree.query(self.slicegrid,gridngb)
+
         if gridngb > 1:
             hgrid = HsmlIter(ngbdist,dim=3,error_norm=1e-3)
             self.sliceweights = Kernel(np.einsum('ij,i->ij',ngbdist, hgrid**-1))
             self.sliceweights = np.einsum('ij,i->ij', self.sliceweights, 1/np.sum(self.sliceweights,axis=1))
         else:
             self.sliceweights = np.ones(ngbdist.shape)
+
+        #return f[ngb].reshape(res,res)
+            
+#        hgrid = HsmlIter(ngbdist,dim=3,error_norm=1e-3)
+#        self.sliceweights = Kernel(np.einsum('ij,i->ij',ngbdist, hgrid**-1))
+#        self.sliceweights = np.einsum('ij,i->ij', self.sliceweights, 1/np.sum(self.sliceweights,axis=1))
+
         if len(f.shape)>1:
             return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res,res,f.shape[-1]))
         else:
@@ -187,9 +197,12 @@ class meshoid(object):
             
         return f
 
-def FromSnapshot(F, ptype=None):
+def FromSnapshot(filename, ptype=None):
+    F = h5py.File(filename)
     meshoids = {}
-    for k in list(F.keys())[1:]:
+    if ptype is None: types = list(F.keys())[1:]
+    else: types = ["PartType%d"%ptype,]
+    for k in types:
         x = np.array(F[k]["Coordinates"])
         m = np.array(F[k]["Masses"])
         if "SmoothingLength" in list(F[k].keys()):
@@ -199,10 +212,11 @@ def FromSnapshot(F, ptype=None):
         else:
             h = None
         boxsize = F["Header"].attrs["BoxSize"]
+        if np.any(x<0): boxsize=None    
         if ptype is None:
-            meshoids[k] = meshoid(x, m, h, boxsize=boxsize)
+            meshoids[k] = meshoid(x, m, h,boxsize=boxsize)
         else: return meshoid(x,m,h,boxsize=boxsize)
-        
+    F.close()
     return meshoids
         
 @jit
