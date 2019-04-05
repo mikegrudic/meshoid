@@ -8,10 +8,11 @@ from numba import jit, vectorize, float32, float64, njit
 import h5py
 
 class meshoid(object):
-    def __init__(self, x, m=None, h=None, des_ngb=None, boxsize=None, verbose=False):
+    def __init__(self, pos, m=None, h=None, des_ngb=None, boxsize=None, verbose=False, mask=None):
         self.tree=None
-        if len(x.shape)==1:
-            x = x[:,None]
+        self.mask=mask
+        if len(pos.shape)==1:
+            pos = pos[:,None]
 
         self.verbose = verbose
         self.N, self.dim = x.shape
@@ -56,32 +57,46 @@ class meshoid(object):
         if self.boxsize != None:
             PeriodicizeDX(dx.ravel(), self.boxsize)
     
-        dx_matrix = np.einsum('ij,ijk,ijl->ikl', self.weights, dx, dx)
+        dx_matrix = np.einsum('ij,ijk,ijl->ikl', self.weights, dx, dx, optimize='greedy')
         
         dx_matrix = np.linalg.inv(dx_matrix)
-        self.dweights = np.einsum('ikl,ijl,ij->ijk',dx_matrix, dx, self.weights)
+        self.dweights = np.einsum('ikl,ijl,ij->ijk',dx_matrix, dx, self.weights, optimize='greedy')
         #        self.d2weights = d2weights(dx, self.weights)        
-        self.A = ComputeFaces(self.ngb,self.invngb, self.vol, self.dweights)
+#        self.A = ComputeFaces(self.ngb,self.invngb, self.vol, self.dweights)
 
     def TreeUpdate(self):
         if self.verbose: print("Finding nearest neighbours...")
                 
         self.tree = cKDTree(self.x, boxsize=self.boxsize)
-        self.ngbdist, self.ngb = self.tree.query(self.x, self.des_ngb)
+        if self.mask is not None:
+            self.ngbdist, self.ngb = -np.ones((self.N, self.des_ngb)), -np.ones((self.N, self.des_ngb), dtype=np.int64)
+            self.ngbdist[self.mask], self.ngb[self.mask,:] = self.tree.query(self.x[self.mask,:], self.des_ngb)
+        else:
+            self.ngbdist, self.ngb = self.tree.query(self.x, self.des_ngb)            
                 
         if self.verbose: print("Neighbours found!")
 
-        self.invngb = invngb(self.ngb)
-
         if self.verbose: print("Iterating for smoothing lengths...")
-        self.h = HsmlIter(self.ngbdist, error_norm=1e-13,dim=self.dim)
+
+        self.h = HsmlIter(self.ngbdist, error_norm=1e-13,dim=self.dim, mask=self.mask)
         if self.verbose: print("Smoothing lengths found!")
 
-        q = np.einsum('i,ij->ij', 1/self.h, self.ngbdist)
-        K = Kernel(q)
-        self.weights = np.einsum('ij,i->ij',K, 1/np.sum(K,axis=1))
-        self.density = self.des_ngb * self.m / (self.volnorm * self.h**self.dim)
-        self.vol = self.m / self.density
+        if self.mask is not None:
+            q = np.zeros((self.N, self.des_ngb))
+            self.weights = np.zeros((self.N, self.des_ngb))
+            self.density = np.zeros(self.N)
+            self.vol = np.zeros(self.N)            
+            q[self.mask] = self.ngbdist[self.mask] / self.h[self.mask,None] #np.einsum('i,ij->ij', 1/self.h, self.ngbdist)
+            K = Kernel(q[self.mask])
+            self.weights[self.mask] = K / np.sum(K, axis=1)[:,None]
+            self.density[self.mask] = self.des_ngb * self.m[self.mask] / (self.volnorm * self.h[self.mask]**self.dim)
+            self.vol[self.mask] = self.m[self.mask] / self.density[self.mask]
+        else:
+            q = self.ngbdist / self.h[:,None] #np.einsum('i,ij->ij', 1/self.h, self.ngbdist)            
+            K = Kernel(q)
+            self.weights = K / np.sum(K, axis=1)[:,None] #np.einsum('ij,i->ij',K, 1/np.sum(K,axis=1))
+            self.density = self.des_ngb * self.m / (self.volnorm * self.h**self.dim)
+            self.vol = self.m / self.density
         
 #        self.A = ComputeFaces(self.ngb, self.vol, self.dweights)
 
@@ -107,7 +122,7 @@ class meshoid(object):
         df = DF(f, self.ngb)
         if self.dweights is None:
             self.ComputeDWeights()
-        return np.einsum('ijk,ij...->i...k',self.dweights,df)
+        return np.einsum('ijk,ij...->i...k',self.dweights,df, optimize='greedy')
 
     def Curl(self, v):
         dv = self.D(v)
@@ -148,17 +163,11 @@ class meshoid(object):
         ngbdist, ngb = self.tree.query(self.slicegrid,gridngb)
 
         if gridngb > 1:
-            hgrid = HsmlIter(ngbdist,dim=3,error_norm=1e-3)
+            hgrid = HsmlIter(ngbdist,dim=3,error_norm=1e-3, mask=self.mask)
             self.sliceweights = Kernel(np.einsum('ij,i->ij',ngbdist, hgrid**-1))
             self.sliceweights = np.einsum('ij,i->ij', self.sliceweights, 1/np.sum(self.sliceweights,axis=1))
         else:
             self.sliceweights = np.ones(ngbdist.shape)
-
-        #return f[ngb].reshape(res,res)
-            
-#        hgrid = HsmlIter(ngbdist,dim=3,error_norm=1e-3)
-#        self.sliceweights = Kernel(np.einsum('ij,i->ij',ngbdist, hgrid**-1))
-#        self.sliceweights = np.einsum('ij,i->ij', self.sliceweights, 1/np.sum(self.sliceweights,axis=1))
 
         if len(f.shape)>1:
             return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res,res,f.shape[-1]))
@@ -260,7 +269,7 @@ def d2weights(dx, w):
 
 
 @jit
-def HsmlIter(neighbor_dists,  dim=3, error_norm=1e-6):
+def HsmlIter(neighbor_dists,  dim=3, error_norm=1e-6, mask=None):
     if dim==3:
         norm = 32./3
     elif dim==2:
@@ -271,7 +280,9 @@ def HsmlIter(neighbor_dists,  dim=3, error_norm=1e-6):
     hsml = np.zeros(N)
     n_ngb = 0.0
     bound_coeff = (1./(1-(2*norm)**(-1./3)))
-    for i in range(N):
+    if mask != None: particle_list = mask
+    else: particle_list = np.arange(N)
+    for i in particle_list:
         upper = neighbor_dists[i,des_ngb-1] * bound_coeff
         lower = neighbor_dists[i,1]
         error = 1e100
