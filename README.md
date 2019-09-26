@@ -1,120 +1,151 @@
 
-# MESHOID: MESHless Operations such as Integrals and Derivatives
-"It's not a mesh; it's a meshoid!" - Alfred B. Einstimes
-
-## Installation
-Put a symlink to meshoid.py wherever your python modules are. Usually ends with site-packages.
-
-This module requires numpy, scipy and numba.
-
-## Walkthrough
-Let's take it for a spin. First let's import meshoid and the usual modules.
+First let's import pylab, Meshoid, and the load_from_snapshot script for loading GIZMO outputs.
 
 
 ```python
-import numpy as np
-from meshoid import meshoid
-from matplotlib import pyplot as plt
+%pylab
+from Meshoid import Meshoid
+from load_from_snapshot import load_from_snapshot
 %matplotlib inline
 ```
 
-Let's make a regular grid in the unit cube as a test case. Then we'll make a meshoid out of those points with periodic boundaries.
+    /Users/mgrudic/intelpython3/lib/python3.6/site-packages/IPython/core/pylabtools.py:273: MatplotlibDeprecationWarning: 
+    The text.latex.unicode rcparam was deprecated in Matplotlib 3.0 and will be removed in 3.2.
+      import matplotlib
+
+
+    Using matplotlib backend: TkAgg
+    Populating the interactive namespace from numpy and matplotlib
+
+
+Now let's load some of the gas data fields from a FIRE snapshot using load_from_snapshot. In this case we'll perform a density cut at n_H ~ .1 cm^-3 to narrow it down to just the ISM.
 
 
 ```python
-x = np.arange(0,1,1./32)
-x,y,z = np.meshgrid(x,x,x)
-x = np.c_[x.flatten(),y.flatten(),z.flatten()] #generate the points on a uniform grid; these point positions are arbitrary!
-m = meshoid(x, des_ngb=32, boxsize=1.0) # make the meshoid for unit cube with periodic BCs
+rho = load_from_snapshot("Density", 0, "Meshoid/examples/", 600)
+density_cut = (rho*300 > .1)
+pdata = {}
+for field in "Masses", "Coordinates", "SmoothingLength", "Velocities":
+    pdata[field] = load_from_snapshot(field, 0, "Meshoid/examples/", 600, particle_mask=np.arange(len(rho))[density_cut])
 ```
 
-Here we specified the boxsize because we want periodic BCs. We also specified des_ngb=32, which is the number of nearest neighbours used for kernel calculations. This defaults to 32 for the 3D case in both meshoid and GIZMO.
-
-The meshoid makes a kd-tree out of the points and uses it to find the nearest neighbors of each point, their distances, and the smoothing length and density as calculated by GIZMO:
+Finally, before getting to the meshoid stuff we will also center the coordinates and perform a cut in galactocentric radius at 40kpc.
 
 
 ```python
-#indices of nearest neighbors
-print(m.ngb)
-#distances to nearest neighbors
-print(m.ngbdist)
-#smoothing lengths 
-print(m.h)
-#particle densities
-print(m.density)
+pos = pdata["Coordinates"]
+center = np.median(pos,axis=0)
+pos -= center
+radius_cut = np.sum(pos*pos,axis=1) < 40*40
+pos, mass, hsml, v = pos[radius_cut], pdata["Masses"][radius_cut], pdata["SmoothingLength"][radius_cut], pdata["Velocities"][radius_cut]
 ```
 
-    [[    0  1024 31744 ...,  2048   960    30]
-     [    1     2  1025 ...,    65  2049   961]
-     [    2 31746    34 ...,  2050     4   962]
-     ..., 
-     [32765 31741 32733 ..., 32701 32763  2045]
-     [32766 32765 32734 ..., 32702  2046 32764]
-     [32767 31775 32735 ..., 30719 32737  2047]]
-    [[ 0.       0.03125  0.03125 ...,  0.0625   0.0625   0.0625 ]
-     [ 0.       0.03125  0.03125 ...,  0.0625   0.0625   0.0625 ]
-     [ 0.       0.03125  0.03125 ...,  0.0625   0.0625   0.0625 ]
-     ..., 
-     [ 0.       0.03125  0.03125 ...,  0.0625   0.0625   0.0625 ]
-     [ 0.       0.03125  0.03125 ...,  0.0625   0.0625   0.0625 ]
-     [ 0.       0.03125  0.03125 ...,  0.0625   0.0625   0.0625 ]]
-    [ 0.06156492  0.06156492  0.06156492 ...,  0.06156492  0.06156492
-      0.06156492]
-    [ 0.99910598  0.99910598  0.99910598 ...,  0.99910598  0.99910598
-      0.99910598]
+OK, now let's start by making a map of gas surface density. We can do so by generating a Meshoid object from the particle masses, coordinates, and smoothing lengths, and then calling the SurfaceDensity method. This function is useful for giving kernel-weighted projected quantities on a Cartesion grid of sighlines.
 
-
-Let's define a function and differentiate it:
+Meshoid can also adaptively compute particle smoothing lengths on-the-fly provided only the coordinates, but it requires a nearest-neighbor search that takes a while so it's best to provide the smoothing length when you can.
 
 
 ```python
-y = np.sin(2*np.pi*x[:,0]) # y = sin(2 pi x)
-grad_y = m.D(y) #computes the least-squares gradient of the function
-dy_dx = grad_y[:,0]
-
-plt.scatter(x[:,0], dy_dx)
+import matplotlib.colors as colors
+M = Meshoid(pos, mass, hsml)
+rmax = 20
+res = 800
+X = Y = np.linspace(-rmax, rmax, res)
+X, Y = np.meshgrid(X, Y)
+fig, ax = plt.subplots(figsize=(6,6))
+sigma_gas_msun_pc2 = M.SurfaceDensity(M.m,center=np.array([0,0,0]),size=40.,res=res)*1e4
+p = ax.pcolormesh(X, Y, sigma_gas_msun_pc2, norm=colors.LogNorm(vmin=.1,vmax=1e3))
+ax.set_aspect('equal')
+fig.colorbar(p,label=r"$\Sigma_{gas}$ $(\rm M_\odot\,pc^{-2})$")
+ax.set_xlabel("X (kpc)")
+ax.set_ylabel("Y (kpc)")
 plt.show()
 ```
 
 
-![png](output_7_0.png)
+![png](README_files/README_7_0.png)
 
 
-And let's integrate the function and its square:
-
-
-```python
-print(m.Integrate(y)) # integral of sin(2 Pi x) from 0 to 1 should be 0
-print(m.Integrate(y**2)) # integral of sin(2 Pi x)^2 from 0 to 1 should be 1/2
-```
-
-    6.74604144248e-16
-    0.500447408678
-
-
-Let's add some noise to the function:
+Now let's look at the 3D gas density in a slice through the galaxy, using the Slice method.
 
 
 ```python
-noisy = y + 0.1*np.random.normal(size=len(y))
-
-plt.scatter(x[:,0], noisy)
+fig, ax = plt.subplots(figsize=(6,6))
+density_slice_nHcgs = M.Slice(M.Density(),center=np.array([0,0,0]),size=40.,res=res) * 300
+p = ax.pcolormesh(X, Y, density_slice_nHcgs, norm=colors.LogNorm(vmin=.1,vmax=1e3))
+ax.set_aspect('equal')
+fig.colorbar(p,label=r"$n_H$ $(\rm cm^{-3})$")
+ax.set_xlabel("X (kpc)")
+ax.set_ylabel("Y (kpc)")
 plt.show()
 ```
 
 
-![png](output_11_0.png)
+![png](README_files/README_9_0.png)
 
 
-Nasty! Let's smooth that out by averaging over nearest neighbors a few times.
+Now let's play around with Meshoid's numerical differentiation. Meshoid can take both first (Meshoid.D) and second derivatives (Meshoid.D2) on unstructured data, using a kernel-weighted (or unweighted) least-squares gradient estimator.
+
+As a first sanity check, we can try differentiating the coordinate functions, with respect to those coordinates. That ought to return an identity matrix. Note that you can differentiate scalars, vectors, or even arbitrary tensors that are defined on the meshoid. In general, differentiating a tensor of rank N will return a tensor of rank N+1.
+
+The first time a given differentiation method is called, Meshoid can take a minute to compute the weights that it needs. Hang in there, Meshoid is working diligently and will re-use those weights the next time you need a derivative!
 
 
 ```python
-for i in xrange(3): noisy = m.KernelAverage(noisy) # iterate kernel averaging 3 times
-plt.scatter(x[:,0], noisy)
-plt.show()
+M.D(pos) 
 ```
 
 
-![png](output_13_0.png)
+
+
+    array([[[ 1.00000000e+00, -1.78188627e-16, -6.40763484e-17],
+            [-1.98517418e-16,  1.00000000e+00, -4.16333634e-17],
+            [ 1.99493200e-17, -9.32413868e-18,  1.00000000e+00]],
+    
+           [[ 1.00000000e+00,  6.31818816e-17,  5.49283926e-17],
+            [ 3.25667228e-17,  1.00000000e+00, -1.36609474e-17],
+            [ 1.16185815e-16, -4.39643981e-17,  1.00000000e+00]],
+    
+           [[ 1.00000000e+00,  1.58293517e-16,  4.52925458e-17],
+            [ 9.90418685e-17,  1.00000000e+00, -3.63749829e-17],
+            [ 5.22585447e-17, -4.94396191e-17,  1.00000000e+00]],
+    
+           ...,
+    
+           [[ 1.00000000e+00,  5.51858906e-17, -5.72458747e-17],
+            [ 3.98986399e-16,  1.00000000e+00, -5.32072216e-17],
+            [-8.39172482e-17,  2.77013655e-17,  1.00000000e+00]],
+    
+           [[ 1.00000000e+00, -1.02673946e-16,  6.50521303e-18],
+            [-1.14383329e-16,  1.00000000e+00, -1.21430643e-17],
+            [ 6.46184495e-17,  8.56519716e-18,  1.00000000e+00]],
+    
+           [[ 1.00000000e+00, -2.15214131e-17, -7.04731412e-18],
+            [ 5.96311195e-17,  1.00000000e+00,  1.09938100e-16],
+            [-3.66460334e-17,  3.10352872e-17,  1.00000000e+00]]])
+
+
+
+OK now let's look at something physical. When studying turbulence, people like to look at a quantity called "enstrophy", which is just the norm squared of the norm of the velocity gradient. Let's compute the enstrophy and plot it in projection using the ProjectedAverage() method.
+
+
+```python
+gradv = M.D(v)
+enstrophy = np.sum(gradv*gradv, axis=(1,2))
+enstrophy_projection = M.ProjectedAverage(enstrophy,center=np.array([0,0,0]),size=40.,res=res)
+fig, ax = plt.subplots(figsize=(6,6))
+p = ax.pcolormesh(X, Y, enstrophy_projection*.979**2, norm=colors.LogNorm(vmin=10,vmax=1e7))
+fig.colorbar(p,label=r"Enstrophy $(\rm Gyr^{-2})$")
+ax.set_aspect('equal')
+ax.set_xlabel("X (kpc)")
+ax.set_ylabel("Y (kpc)")
+plt.show()
+```
+
+    /Users/mgrudic/intelpython3/lib/python3.6/site-packages/matplotlib/colors.py:1110: RuntimeWarning: invalid value encountered in less_equal
+      mask |= resdat <= 0
+
+
+
+![png](README_files/README_13_1.png)
 
