@@ -1,4 +1,3 @@
-# MESHOID: MESHless Operations such as Integrals and Derivatives
 "It's not a mesh; it's a meshoid!" - Alfred B. Einstimes
 
 Meshoid is a Python package for analyzing meshless particle data, performing such operations as density/smoothing length computation, numerical differentiation on unstructured data, and various kernel-weighted projection and averaging operations. It was originally designed to work with simulation data from the GIZMO code, but is totally agnostic to the actual format of the data it works on, so feel free to use it with your favorite meshless or unstructured mesh code!
