@@ -1,6 +1,10 @@
+# MESHOID: MESHless Operations such as Integrals and Derivatives
+"It's not a mesh; it's a meshoid!" - Alfred B. Einstimes
 
+Meshoid is a Python package for analyzing meshless particle data, performing such operations as density/smoothing length computation, numerical differentiation on unstructured data, and various kernel-weighted projection and averaging operations. It was originally designed to work with simulation data from the GIZMO code, but is totally agnostic to the actual format of the data it works on, so feel free to use it with your favorite meshless or unstructured mesh code!
+
+# Walkthrough
 First let's import pylab, Meshoid, and the load_from_snapshot script for loading GIZMO outputs.
-
 
 ```python
 %pylab
@@ -9,20 +13,11 @@ from load_from_snapshot import load_from_snapshot
 %matplotlib inline
 ```
 
-    /Users/mgrudic/intelpython3/lib/python3.6/site-packages/IPython/core/pylabtools.py:273: MatplotlibDeprecationWarning: 
-    The text.latex.unicode rcparam was deprecated in Matplotlib 3.0 and will be removed in 3.2.
-      import matplotlib
-
-
-    Using matplotlib backend: TkAgg
-    Populating the interactive namespace from numpy and matplotlib
-
-
 Now let's load some of the gas data fields from a FIRE snapshot using load_from_snapshot. In this case we'll perform a density cut at n_H ~ .1 cm^-3 to narrow it down to just the ISM.
 
 
 ```python
-rho = load_from_snapshot("Density", 0, "Meshoid/examples/", 600)
+rho = load_from_snapshot("Density", 0, "../data", 600)
 density_cut = (rho*300 > .1)
 pdata = {}
 for field in "Masses", "Coordinates", "SmoothingLength", "Velocities":
@@ -63,7 +58,7 @@ plt.show()
 ```
 
 
-![png](README_files/README_7_0.png)
+![png](output1.png)
 
 
 Now let's look at the 3D gas density in a slice through the galaxy, using the Slice method.
@@ -81,7 +76,7 @@ plt.show()
 ```
 
 
-![png](README_files/README_9_0.png)
+![png](output2.png)
 
 
 Now let's play around with Meshoid's numerical differentiation. Meshoid can take both first (Meshoid.D) and second derivatives (Meshoid.D2) on unstructured data, using a kernel-weighted (or unweighted) least-squares gradient estimator.
@@ -142,10 +137,6 @@ ax.set_ylabel("Y (kpc)")
 plt.show()
 ```
 
-    /Users/mgrudic/intelpython3/lib/python3.6/site-packages/matplotlib/colors.py:1110: RuntimeWarning: invalid value encountered in less_equal
-      mask |= resdat <= 0
 
-
-
-![png](README_files/README_13_1.png)
+![png](output3.png)
 
