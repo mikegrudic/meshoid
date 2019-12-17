@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='meshoid',
-      version='1.0',
+      version='1.01',
       description='Package for analysis of meshless simulation data',
       url='http://github.com/omgspace/meshoid',
       author='Mike Grudić',

@@ -98,6 +98,33 @@ def Kernel(q):
         return 2 * (1-q)**3
     else: return 0.0
 
+def GridSurfaceDensityMultigrid(f, x, h, center, size, res=128, box_size=-1,N_grid_kernel=8):
+    if not ((res != 0) and (res & (res-1) == 0)): raise("Multigrid resolution must be a power of 2")
+    res_bins = size / 2**np.arange(0,round(np.log2(res)+1))
+    res_bins[0] = np.inf
+    res_bins[-1] = 0
+    
+    grid = np.zeros((1,1))
+    for i in range(len(res_bins)-1):
+        grid = UpsampleGrid(grid)
+        Ni = grid.shape[0]
+        # bin particles by smoothing length to decide which resolution level they get deposited at                                             
+        idx = (h/N_grid_kernel < res_bins[i]) & (h/N_grid_kernel >= res_bins[i+1])
+        if np.any(idx): 
+            grid += GridSurfaceDensity(f[idx], x[idx], h[idx], center, size, res=Ni, box_size=-1)
+    return grid
+
+@njit(fastmath=True)
+def UpsampleGrid(grid):
+    newgrid = np.empty((grid.shape[0]*2, grid.shape[1]*2))
+    for i in range(grid.shape[0]):
+        for j in range(grid.shape[1]):
+            newgrid[2*i,2*j] = grid[i,j]
+            newgrid[2*i+1,2*j] = grid[i,j]
+            newgrid[2*i,2*j+1] = grid[i,j]
+            newgrid[2*i+1,2*j+1] = grid[i,j]
+    return newgrid
+    
 @njit(fastmath=True)
 def GridSurfaceDensity(f, x, h, center, size, res=100, box_size=-1):
     """
