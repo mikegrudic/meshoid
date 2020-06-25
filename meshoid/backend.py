@@ -171,6 +171,65 @@ def GridSurfaceDensity(f, x, h, center, size, res=100, box_size=-1):
                     continue
                 grid[gx,gy] += 1.8189136353359467 * kernel * mh2
     return grid
+    
+@njit(fastmath=True)
+def Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res=(128,16), box_size=-1):
+    """
+    A modified version of the GridSurfaceDensity script, it computes the PPZ datacube of conserved quantity f, where Z is an arbitrary data dimension (e.g. using line-of-sight velocity as Z gives the usual astro PPV datacubes, using position gives a PPP cube, which is just the density).
+
+    Arguments:
+    f - (N,) array of the conserved quantity that you want the surface density of (e.g. particle masses)
+    x - (N,3) array of particle positions
+    h - (N,) array of particle smoothing lengths
+    z - (N,) array of particle positions in the Z dimension (e.g. line of sight velocity values)
+    h_z - (N,) array of uncertainties ("smoothing lengths") in the Z dimension (e.g. thermal velocity)
+    center - (3,) array containing the coorindates of the center of the PPZ map
+    size - (2) side-length of the map, first value for the PP map, second value is for Z (e.g. max velocity - min velocity)
+    res - (2) resolution of the PPX grid, first value is for the PP map, seconf is for Z (e.g. (128, 16) means a 128x128x16 PPX cube)
+    """
+    dx = size[0]/(res[0]-1)
+    dz = size[1]/(res[1]-1)
+
+    x2d = x[:,:2] - center[:2] + size[0]/2
+    z1d = z - center[2] + size[1]/2
+    
+    grid = np.zeros((res[0],res[0],res[1]))
+    
+    N = len(x)
+    for i in range(N):
+        xs = x2d[i]
+        zs = z1d[i]
+        hs = h[i]
+        h_z_s = h_z[i]
+        hinvsq = 1/(hs*hs);
+        h_z_invsq = 1/(h_z_s*h_z_s)
+        f_density = f[i]/(hs*hs*h_z_s)
+
+        gxmin = max(int((xs[0] - hs)/dx+1),0)
+        gxmax = min(int((xs[0] + hs)/dx),res[0]-1)
+        gymin = max(int((xs[1] - hs)/dx+1), 0)
+        gymax = min(int((xs[1] + hs)/dx),res[0]-1)
+        gzmin = max(int((zs - h_z_s)/dz+1), 0)
+        gzmax = min(int((zs + h_z_s)/dz),res[1]-1)
+
+        for gx in range(gxmin, gxmax+1):            
+            delta_x_Sqr = xs[0] - gx*dx
+            delta_x_Sqr *= delta_x_Sqr
+            for gy in range(gymin,gymax+1):
+                delta_y_Sqr = xs[1] - gy*dx
+                delta_y_Sqr *= delta_y_Sqr
+                for gz in range(gzmin,gzmax+1):
+                    delta_z_Sqr = zs - gz*dz
+                    delta_z_Sqr *= delta_z_Sqr
+                    q = np.sqrt( (delta_x_Sqr + delta_y_Sqr)*hinvsq + delta_z_Sqr*h_z_invsq ) 
+                    if q <= 0.5:
+                        kernel = 1 - 6*q*q + 6*q*q*q
+                    elif q <= 1.0:
+                        kernel = 2 * (1-q)*(1-q)*(1-q)
+                    else:
+                        continue
+                    grid[gx,gy] += 2.546479089470325 * kernel * f_density #Using 3D normalization
+    return grid
 
 @njit(fastmath=True)
 def GridAverage(f, x, h, center, size, res=100, box_size=-1):
@@ -181,7 +240,7 @@ def GridAverage(f, x, h, center, size, res=100, box_size=-1):
     f - (N,) array of the conserved quantity that you want the surface density of (e.g. particle masses)
     x - (N,3) array of particle positions
     h - (N,) array of particle smoothing lengths
-    center - (2,) array containing the coorindates of the center of the map
+    center - (2,) array containing the coordinates of the center of the map
     size - side-length of the map
     res - resolution of the grid
     """
