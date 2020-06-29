@@ -218,17 +218,18 @@ def Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res=(128,16), box_size=-1):
             for gy in range(gymin,gymax+1):
                 delta_y_Sqr = xs[1] - gy*dx
                 delta_y_Sqr *= delta_y_Sqr
+                q2dsq = (delta_x_Sqr + delta_y_Sqr)*hinvsq
                 for gz in range(gzmin,gzmax+1):
                     delta_z_Sqr = zs - gz*dz
                     delta_z_Sqr *= delta_z_Sqr
-                    q = np.sqrt( (delta_x_Sqr + delta_y_Sqr)*hinvsq + delta_z_Sqr*h_z_invsq ) 
+                    q = np.sqrt( q2dsq + delta_z_Sqr*h_z_invsq ) 
                     if q <= 0.5:
                         kernel = 1 - 6*q*q + 6*q*q*q
                     elif q <= 1.0:
                         kernel = 2 * (1-q)*(1-q)*(1-q)
                     else:
                         continue
-                    grid[gx,gy] += 2.546479089470325 * kernel * f_density #Using 3D normalization
+                    grid[gx,gy, gz] += 2.546479089470325 * kernel * f_density #Using 3D normalization
     return grid
 
 @njit(fastmath=True)
