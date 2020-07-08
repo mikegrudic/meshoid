@@ -172,8 +172,38 @@ def GridSurfaceDensity(f, x, h, center, size, res=100, box_size=-1):
                 grid[gx,gy] += 1.8189136353359467 * kernel * mh2
     return grid
     
+    
 @njit(fastmath=True)
-def Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res=(128,16), box_size=-1):
+def UpsampleGrid_PPV(grid):
+    newgrid = np.empty((grid.shape[0]*2, grid.shape[1]*2, grid.shape[2]))
+    for i in range(grid.shape[0]):
+        for j in range(grid.shape[1]):
+            newgrid[2*i,2*j,:] = grid[i,j,:]
+            newgrid[2*i+1,2*j,:] = grid[i,j,:]
+            newgrid[2*i,2*j+1,:] = grid[i,j,:]
+            newgrid[2*i+1,2*j+1,:] = grid[i,j,:]
+    return newgrid
+
+
+def Grid_PPZ_DataCube_Multigrid(f, x, h, center, size, z, h_z, res, box_size=-1,N_grid_kernel=8):
+    """ Faster, multigrid version of Grid_PPZ_DataCube. Since the third dimension is separate from the spatial ones, we only do the multigrid approach on the spatial grid. See Grid_PPZ_DataCube for desription of inputs """
+    if not ((res[0] != 0) and (res[0] & (res[0]-1) == 0)): raise("Multigrid resolution must be a power of 2")
+    res_bins = size[0] / 2**np.arange(0,round(np.log2(res[0])+1))
+    res_bins[0] = np.inf
+    res_bins[-1] = 0
+    grid = np.zeros((1,1,res[1]))
+    for i in range(len(res_bins)-1):
+        grid = UpsampleGrid_PPV(grid)
+        Ni = grid.shape[0]
+        # bin particles by smoothing length to decide which resolution level they get deposited at                                             
+        idx = (h/N_grid_kernel < res_bins[i]) & (h/N_grid_kernel >= res_bins[i+1])
+        print(Ni, np.sum(idx))
+        if np.any(idx): 
+            grid += Grid_PPZ_DataCube(f[idx], x[idx], h[idx], center, size, z[idx], h_z[idx], np.array([Ni,res[1]],dtype=np.int32), box_size=box_size)
+    return grid
+
+@njit(fastmath=True)
+def Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res, box_size=-1):
     """
     A modified version of the GridSurfaceDensity script, it computes the PPZ datacube of conserved quantity f, where Z is an arbitrary data dimension (e.g. using line-of-sight velocity as Z gives the usual astro PPV datacubes, using position gives a PPP cube, which is just the density).
 
@@ -183,9 +213,9 @@ def Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res=(128,16), box_size=-1):
     h - (N,) array of particle smoothing lengths
     z - (N,) array of particle positions in the Z dimension (e.g. line of sight velocity values)
     h_z - (N,) array of uncertainties ("smoothing lengths") in the Z dimension (e.g. thermal velocity)
-    center - (3,) array containing the coorindates of the center of the PPZ map
+    center - (3,) array containing the coordinates of the center of the PPZ map
     size - (2) side-length of the map, first value for the PP map, second value is for Z (e.g. max velocity - min velocity)
-    res - (2) resolution of the PPX grid, first value is for the PP map, seconf is for Z (e.g. (128, 16) means a 128x128x16 PPX cube)
+    res - (2) resolution of the PPX grid, first value is for the PP map, second is for Z (e.g. [128, 16] means a 128x128x16 PPX cube)
     """
     dx = size[0]/(res[0]-1)
     dz = size[1]/(res[1]-1)
