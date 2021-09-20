@@ -7,7 +7,7 @@ First let's import pylab, Meshoid, and the load_from_snapshot script for loading
 
 ```python
 %pylab
-from Meshoid import Meshoid
+from meshoid import Meshoid
 from load_from_snapshot import load_from_snapshot
 %matplotlib inline
 ```
