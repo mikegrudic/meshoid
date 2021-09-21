@@ -5,9 +5,10 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(name='meshoid',
-      version='1.01',
+      version='1.02',
       description='Package for analysis of meshless simulation data',
-      url='http://github.com/omgspace/meshoid',
+#      long_description=long_description,
+      url='http://github.com/mikegrudic/meshoid',
       author='Mike Grudić',
       author_email='mike.grudich@gmail.com',
       license='MIT',

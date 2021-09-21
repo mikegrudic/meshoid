@@ -116,7 +116,7 @@ class Meshoid(object):
         if self.verbose: print("Finding nearest neighbours...")
                 
         self.tree = cKDTree(self.pos, boxsize=self.boxsize)
-        self.ngbdist, self.ngb = self.tree.query(self.pos[self.particle_mask], self.des_ngb, n_jobs=self.n_jobs)
+        self.ngbdist, self.ngb = self.tree.query(self.pos[self.particle_mask], self.des_ngb, workers=self.n_jobs)
                 
         if self.verbose: print("Neighbours found!")
 
@@ -322,6 +322,32 @@ class Meshoid(object):
         else:
             return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res,res))
 
+    def DepositToGrid(self, f, weights=None, size=None, center=None, res=128, method='nearest'):
+        """
+        Deposits the quantity f defined on the meshoid to a Cartesian grid
+
+        """
+        if center is None: center = self.center
+        if size is None: size = self.L
+
+        x = np.linspace(-size/2,size/2,res+1)
+        x = (x[1:] + x[:-1])/2
+        X, Y, Z = np.meshgrid(x,x,x,indexing='ij')
+        gridcoords = np.c_[X.flatten(),Y.flatten(),Z.flatten()] + center
+        if method=='nearest':
+
+            ngbdist, ngb = self.tree.query(gridcoords, workers=self.n_jobs)
+            f_interp = f[ngb].reshape((res,res,res))
+#        elif method=='interp': # use scipy interp
+#            from scipy.interpolate import griddata
+#            f_interp = griddata(self.pos, f, gridcoords).reshape((res,res,res))
+#            f_interp = interp(gridcoords).reshape((res,res,res))
+#        elif method=='kernel':
+                   
+        return f_interp
+        
+        
+
     def SurfaceDensity(self, f=None, size=None, plane='z', center=None, res=128, smooth_fac=1.):
         """
         Computes the surface density of a quantity f defined on the meshoid on a grid of sightlines. e.g. if f is the particle masses, you will get mass surface density.
@@ -329,7 +355,7 @@ class Meshoid(object):
         Keyword arguments:
         f - the quantity you want the surface density of (default: particle mass)
         size - the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
-        plane - the direction you want to project along, of x, y, or z (default: 'z'')
+        plane - the direction you want to project along, of x, y, or z (default: 'z')
         center - (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
         res - the resolution of the grid of sightlines (default: 128)
         smooth_fac - smoothing lengths are increased by this factor (default: 1.)
