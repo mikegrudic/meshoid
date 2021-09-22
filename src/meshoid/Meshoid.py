@@ -10,7 +10,7 @@ from .backend import *
 import h5py
 
 class Meshoid(object):
-    def __init__(self, pos, m=None, hsml=None, des_ngb=None, boxsize=None, verbose=False, particle_mask=None, n_jobs=1):
+    def __init__(self, pos, m=None, hsml=None, des_ngb=None, boxsize=-1, verbose=False, particle_mask=None, n_jobs=1):
         """
         Creates a Meshoid object instance given at least the positions of the particles.
         
@@ -322,29 +322,41 @@ class Meshoid(object):
         else:
             return np.einsum('ij,ij...->i...', self.sliceweights, f[ngb]).reshape((res,res))
 
-    def DepositToGrid(self, f, weights=None, size=None, center=None, res=128, method='nearest'):
+    def InterpToGrid(self, f, weights=None, size=None, center=None, res=128, method='kernel'):
         """
-        Deposits the quantity f defined on the meshoid to a Cartesian grid
+        Interpolates the quantity f defined on the meshoid to a Cartesian grid
 
         """
         if center is None: center = self.center
         if size is None: size = self.L
+        if weights is None: weights = self.m
 
         x = np.linspace(-size/2,size/2,res+1)
         x = (x[1:] + x[:-1])/2
         X, Y, Z = np.meshgrid(x,x,x,indexing='ij')
         gridcoords = np.c_[X.flatten(),Y.flatten(),Z.flatten()] + center
         if method=='nearest':
-
             ngbdist, ngb = self.tree.query(gridcoords, workers=self.n_jobs)
             f_interp = f[ngb].reshape((res,res,res))
-#        elif method=='interp': # use scipy interp
-#            from scipy.interpolate import griddata
-#            f_interp = griddata(self.pos, f, gridcoords).reshape((res,res,res))
-#            f_interp = interp(gridcoords).reshape((res,res,res))
-#        elif method=='kernel':
+        elif method=='kernel':
+            h = np.clip(self.hsml, 3**0.5 * size/(res-1), 1e100)
+            f_interp = WeightedGridInterp3D(f, weights, self.pos, h, center, size, res=res,box_size=self.boxsize)
                    
         return f_interp
+
+    def DepositToGrid(self, f, weights=None, size=None, center=None, res=128):
+        """
+        Deposits a conserved quantity (e.g. mass, momentum, energy) to a 3D grid and returns the density of that quantity that grid
+        """
+        if center is None: center = self.center
+        if size is None: size = self.L
+        if weights is None: weights = self.m
+
+        h = np.clip(self.hsml, 3**0.5 * size/(res-1), 1e100)
+        f_grid = GridDensity(f, self.pos, h, center, size, res=res,box_size=self.boxsize)
+                   
+        return f_grid
+
         
         
 
@@ -366,7 +378,7 @@ class Meshoid(object):
         if f is None: f = self.m
         if center is None: center = self.center
         if size is None: size = self.L
-        return GridSurfaceDensity(f, self.pos, np.clip(smooth_fac*self.hsml, 2*size/res,1e100), center, size, res, self.boxsize)
+        return GridSurfaceDensity(f, self.pos, np.clip(smooth_fac*self.hsml, 2*size/res,1e100), center, size, res, self.boxsize, parallel=(False if self.n_jobs == 1 else True))
 
     def ProjectedAverage(self, f, size=None, plane='z', center=None, res=128, smooth_fac=1.):
         """
