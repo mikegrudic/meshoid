@@ -522,24 +522,11 @@ def GridDensity(f, x, h, center, size, res=100, box_size=-1):
         # OK now do the actual deposition
         j = 0
         for gx in range(gxmin, gxmax+1):          
-#            delta_x_Sqr = xs[0] - gx*dx
-#            delta_x_Sqr *= delta_x_Sqr
             for gy in range(gymin,gymax+1):
-#                delta_y_Sqr = xs[1] - gy*dx
-#                delta_y_Sqr *= delta_y_Sqr
                 for gz in range(gzmin,gzmax+1):
-#                    delta_z_Sqr = xs[2] - gz*dx
-#                    delta_z_Sqr *= delta_z_Sqr
-#                    q = np.sqrt(delta_x_Sqr + delta_y_Sqr + delta_z_Sqr) * hinv
-#                    if q > 1:
-#                        kernel = 0
-#                    elif q <= 0.5:
-#                        kernel = 1 - 6*q*q + 6*q*q*q
-#                    else:
-#                        kernel = 2 * (1-q)*(1-q)*(1-q)
                     kernel = kval[j]; j+=1
-                    total_wt += kernel
-                    grid[gx%res,gy%res,gz%res] += f[i] * kernel / total_wt
+                    if total_wt > 0:
+                        grid[gx%res,gy%res,gz%res] += f[i] * kernel / total_wt
     return grid / (dx*dx*dx)
 
    

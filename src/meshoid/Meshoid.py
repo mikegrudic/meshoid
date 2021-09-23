@@ -351,7 +351,7 @@ class Meshoid(object):
         if size is None: size = self.L
         if weights is None: weights = self.m
 
-        h = np.clip(self.hsml, 2 * size/(res-1), 1e100)
+        h = np.clip(self.hsml, size/(res-1), 1e100)
         f_grid = GridDensity(f, self.pos, h, center, size, res=res,box_size=self.boxsize)
                    
         return f_grid
