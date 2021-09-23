@@ -370,50 +370,48 @@ def WeightedGridInterp3D(f, wt, x, h, center, size, res=100, box_size=-1):
     wt - (N,) array of weights
     x - (N,3) array of particle positions
     h - (N,) array of particle smoothing lengths
-    center - (2,) array containing the coorindates of the center of the map
+    center - (3,) array containing the coorindates of the center of the map
     size - side-length of the map
     res - resolution of the grid
     """
     dx = size/(res-1)
 
-    x3d = x - center + size/2 - dx/2 # + dx/2 # coordinates in the grid frame, such that the origin is at the corner of the grid
+    x3d = x - center # coordinates in the grid frame, such that the origin is at the corner of the grid 
+    gridcoords = np.linspace(dx/2-size/2, size/2-dx/2, res)
     
     grid = np.zeros((res,res,res))
     gridwt = np.zeros_like(grid)
-    
+
+    x_to_grid_idx = np.empty(3)
     N = len(x)
     for i in range(N):
         xs = x3d[i]        
         hs = h[i]        
         hinv = 1/hs
-#        if True:
-        if box_size < 0:
-            gxmin = max(int((xs[0] - hs)/dx+1),0)
-            gxmax = min(int((xs[0] + hs)/dx),res-1)
-            gymin = max(int((xs[1] - hs)/dx+1), 0)
-            gymax = min(int((xs[1] + hs)/dx),res-1)
-            gzmin = max(int((xs[2] - hs)/dx+1), 0)
-            gzmax = min(int((xs[2] + hs)/dx),res-1)
-        else:
-            gxmin = int((xs[0] - hs)/dx+1)
-            gxmax = int((xs[0] + hs)/dx)
-            gymin = int((xs[1] - hs)/dx+1)
-            gymax = int((xs[1] + hs)/dx)
-            gzmin = int((xs[2] - hs)/dx+1)
-            gzmax = int((xs[2] + hs)/dx)
+        for k in range(3): x_to_grid_idx[k] = (xs[k] + size/2)/dx - 0.5
+        hs_dx = hs/dx
+        gxmin = max(int(x_to_grid_idx[0]-hs_dx+1),0)
+        gxmax = min(int(x_to_grid_idx[0]+hs_dx),res-1)
+        gymin = max(int(x_to_grid_idx[1]-hs_dx+1),0)
+        gymax = min(int(x_to_grid_idx[1]+hs_dx),res-1)
+        gzmin = max(int(x_to_grid_idx[2]-hs_dx+1),0)
+        gzmax = min(int(x_to_grid_idx[2]+hs_dx),res-1)
 
         # first have to do a prepass to get the weight
         kval = np.empty(int(2*hs/dx+1)**3) # save kernel values so don't have to recompute
         total_wt = 0
         j = 0
         for gx in range(gxmin, gxmax+1):            
-            delta_x_Sqr = xs[0] - gx*dx
+#            delta_x_Sqr = xs[0] - gx*dx
+            delta_x_Sqr = xs[0] - gridcoords[gx]
             delta_x_Sqr *= delta_x_Sqr
             for gy in range(gymin,gymax+1):
-                delta_y_Sqr = xs[1] - gy*dx
+#                delta_y_Sqr = xs[1] - gy*dx
+                delta_y_Sqr = xs[1] - gridcoords[gy]                
                 delta_y_Sqr *= delta_y_Sqr
                 for gz in range(gzmin,gzmax+1):
-                    delta_z_Sqr = xs[2] - gz*dx
+                    delta_z_Sqr = xs[2] - gridcoords[gz]
+#                    delta_z_Sqr = xs[2] - gz*dx
                     delta_z_Sqr *= delta_z_Sqr
                     q = np.sqrt(delta_x_Sqr + delta_y_Sqr + delta_z_Sqr) * hinv
                     if q > 1:
@@ -428,26 +426,35 @@ def WeightedGridInterp3D(f, wt, x, h, center, size, res=100, box_size=-1):
         # OK now do the actual deposition
         j = 0
         for gx in range(gxmin, gxmax+1):            
-#            delta_x_Sqr = xs[0] - gx*dx
-#            delta_x_Sqr *= delta_x_Sqr
             for gy in range(gymin,gymax+1):
-#                delta_y_Sqr = xs[1] - gy*dx
-#                delta_y_Sqr *= delta_y_Sqr
                 for gz in range(gzmin,gzmax+1):
-#                    delta_z_Sqr = xs[2] - gz*dx
-#                    delta_z_Sqr *= delta_z_Sqr
-#                    q = np.sqrt(delta_x_Sqr + delta_y_Sqr + delta_z_Sqr) * hinv
-#                    if q > 1:
-#                        kernel = 0
-#                    elif q <= 0.5:
-#                        kernel = 1 - 6*q*q + 6*q*q*q
-#                    else:
-#                        kernel = 2 * (1-q)*(1-q)*(1-q)
                     kernel = kval[j]; j+=1
-                    total_wt += kernel
-                    grid[gx%res,gy%res,gz%res] += f[i] * kernel * wt[i] / total_wt
-                    gridwt[gx%res,gy%res,gz%res] += kernel*wt[i]/total_wt
-    return grid/gridwt
+                    if total_wt > 0:
+                        grid[gx%res,gy%res,gz%res] += f[i] * kernel * wt[i] / total_wt
+                        gridwt[gx%res,gy%res,gz%res] += kernel*wt[i]/total_wt
+                    
+    result = grid/gridwt
+#    do a loop through the grid to check for nans and address if needed
+    pos = np.zeros(3)
+    for i in range(grid.shape[0]):
+        for j in range(grid.shape[1]):
+            for k in range(grid.shape[2]):
+                if gridwt[i,j,k] == 0: # we have to search for the nearest neighbor and take its value - this is usually a rare edge case
+                    pos[0] = gridcoords[i]
+                    pos[1] = gridcoords[j]
+                    pos[2] = gridcoords[k]
+                    min_dist = 1e100
+                    min_dist_idx = -1
+                    for p in range(x3d.shape[0]): # brute force search lol
+                        dist = 0
+                        for d in range(3):
+                            dist += (x3d[p,d] - pos[d])*(x3d[p,d]-pos[d])
+                        if dist < min_dist:
+                            min_dist = dist
+                            min_dist_idx = p
+                    result[i,j,k] = f[min_dist_idx]
+    return result
+                                
 
 @njit(fastmath=True)
 def GridDensity(f, x, h, center, size, res=100, box_size=-1):

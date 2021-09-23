@@ -339,9 +339,8 @@ class Meshoid(object):
             ngbdist, ngb = self.tree.query(gridcoords, workers=self.n_jobs)
             f_interp = f[ngb].reshape((res,res,res))
         elif method=='kernel':
-            h = np.clip(self.hsml, 2 * size/(res-1), 1e100)
+            h = np.clip(self.hsml, size/(res-1), 1e100)
             f_interp = WeightedGridInterp3D(f, weights, self.pos, h, center, size, res=res,box_size=self.boxsize)
-                   
         return f_interp
 
     def DepositToGrid(self, f, weights=None, size=None, center=None, res=128):
