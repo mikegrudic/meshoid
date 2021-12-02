@@ -10,7 +10,7 @@ from .backend import *
 import h5py
 
 class Meshoid(object):
-    def __init__(self, pos, m=None, hsml=None, des_ngb=None, boxsize=-1, verbose=False, particle_mask=None, n_jobs=1):
+    def __init__(self, pos, m=None, hsml=None, des_ngb=None, boxsize=None, verbose=False, particle_mask=None, n_jobs=1):
         """
         Creates a Meshoid object instance given at least the positions of the particles.
         
