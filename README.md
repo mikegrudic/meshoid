@@ -21,7 +21,7 @@ rho = F["PartType0"]["Density"][:]
 density_cut = (rho*300 > .1)
 pdata = {}
 for field in "Masses", "Coordinates", "SmoothingLength", "Velocities":
-    pdata[field] = F["PartType0"][field][:]
+    pdata[field] = F["PartType0"][field][:][density_cut]
 F.close()
 ```
 
