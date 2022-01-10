@@ -11,16 +11,18 @@ from meshoid import Meshoid
 %matplotlib inline
 ```
 
-Now let's load some of the gas data fields from a FIRE snapshot using load_from_snapshot. In this case we'll perform a density cut at n_H ~ .1 cm^-3 to narrow it down to just the ISM.
+Now let's load some of the gas data fields from a FIRE snapshot using h5py. In this case we'll perform a density cut at n_H ~ .1 cm^-3 to narrow it down to just the ISM.
 
 
 ```python
+import h5py
 F = h5py.File("snapshot_600.hdf5","r")
 rho = F["PartType0"]["Density"][:]
 density_cut = (rho*300 > .1)
 pdata = {}
 for field in "Masses", "Coordinates", "SmoothingLength", "Velocities":
     pdata[field] = F["PartType0"][field][:]
+F.close()
 ```
 
 Finally, before getting to the meshoid stuff we will also center the coordinates and perform a cut in galactocentric radius at 40kpc.
