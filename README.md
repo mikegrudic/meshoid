@@ -8,7 +8,6 @@ First let's import pylab, Meshoid, and the load_from_snapshot script for loading
 ```python
 %pylab
 from meshoid import Meshoid
-from load_from_snapshot import load_from_snapshot
 %matplotlib inline
 ```
 
@@ -16,11 +15,12 @@ Now let's load some of the gas data fields from a FIRE snapshot using load_from_
 
 
 ```python
-rho = load_from_snapshot("Density", 0, "../data", 600)
+F = h5py.File("snapshot_600.hdf5","r")
+rho = F["PartType0"]["Density"][:]
 density_cut = (rho*300 > .1)
 pdata = {}
 for field in "Masses", "Coordinates", "SmoothingLength", "Velocities":
-    pdata[field] = load_from_snapshot(field, 0, "Meshoid/examples/", 600, particle_mask=np.arange(len(rho))[density_cut])
+    pdata[field] = F["PartType0"][field][:]
 ```
 
 Finally, before getting to the meshoid stuff we will also center the coordinates and perform a cut in galactocentric radius at 40kpc.
