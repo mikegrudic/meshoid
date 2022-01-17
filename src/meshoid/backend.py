@@ -529,13 +529,55 @@ def GridDensity(f, x, h, center, size, res=100, box_size=-1):
                         grid[gx%res,gy%res,gz%res] += f[i] * kernel / total_wt
     return grid / (dx*dx*dx)
 
-   
-# @jit
-# def ComputeFaces(ngb, ingb, vol, dweights):
-#     N, Nngb, dim = dweights.shape
-#     result = np.zeros_like(dweights)
-#     for i in range(N):
-#         for j in range(Nngb):
-#             result[i,j] += vol[i] * dweights[i,j]
-#             if ingb[i,j] > -1: result[ngb[i,j],ingb[i,j]] -= vol[i] * dweights[i,j]
-#     return result
+
+@njit(fastmath=True)
+def GridRadTransfer(lum, m, kappa, x, h, gridres, L, i0):
+    order = x[:,2].argsort() # get order for sorting by distance from observer
+    lum, kappa, x, h = np.atleast_2d(lum[order]), np.atleast_2d(kappa[order]), x[order], h[order]
+
+    grid = np.ones((gridres,gridres,kappa.shape[-1]))*i0 
+    dx = L/(gridres-1)
+    N = len(x)
+    lh2 = np.empty(3)
+    k = np.empty(3)
+    for i in range(N):
+        xs = x[i] + L/2
+        hs = h[i]
+        for b in range(kappa.shape[-1]): # unpack the brightness and opacity
+            lh2[b] = lum[i,b]/hs**2
+            k[b] = kappa[i,b]
+        mh2 = m[i]/hs**2
+
+        gxmin = max(int((xs[0] - hs)/dx+1),0)
+        gxmax = min(int((xs[0] + hs)/dx),gridres-1)
+        gymin = max(int((xs[1] - hs)/dx+1), 0)
+        gymax = min(int((xs[1] + hs)/dx), gridres-1)
+        
+        for gx in range(gxmin, gxmax+1):
+            delta_x_Sqr = xs[0] - gx*dx
+            delta_x_Sqr *= delta_x_Sqr
+            for gy in range(gymin,gymax+1):
+                delta_y_Sqr = ys[0] - gy*dy
+                delta_y_Sqr *= delta_y_Sqr
+                r = delta_x_Sqr + delta_y_Sqr
+                if r > hs*hs: continue
+
+                q = np.sqrt(r) * hinv                
+                if q <= 0.5:
+                    kernel = 1 - 6*q*q * (1-q)
+                elif q <= 1.0:
+                    a = 1-q
+                    kernel = 2 * a * a * a
+                else:
+                    continue
+                kernel *= 1.8189136353359467
+                for b in range(kappa.shape[-1]):
+                    grid[gx,gy,b] += kernel * lh2[b] # emission
+                    tau = k[b] * mh2
+                    if tau < 0.3:
+                        grid[gx,gy,b] *= (1-tau)
+                    else:
+                        grid[gx,gy,b] *= np.exp(-tau)
+#                    grid[gx,gy,b] *= np.exp(- k[b] * mh2 * kernel) # absorption
+                
+    return grid
