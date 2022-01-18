@@ -1,4 +1,4 @@
-from numba import jit, vectorize, float32, float64, cfunc, njit, prange, get_num_threads
+from numba import jit, vectorize, float32, float64, cfunc, njit, prange, get_num_threads, set_num_threads
 import numpy as np
 from scipy.special import comb
 from scipy.interpolate import interp2d, RectBivariateSpline
@@ -530,23 +530,72 @@ def GridDensity(f, x, h, center, size, res=100, box_size=-1):
     return grid / (dx*dx*dx)
 
 
-@njit(fastmath=True)
-def GridRadTransfer(lum, m, kappa, x, h, gridres, L, i0):
-    order = x[:,2].argsort() # get order for sorting by distance from observer
-    lum, kappa, x, h = np.atleast_2d(lum[order]), np.atleast_2d(kappa[order]), x[order], h[order]
+@njit#(fastmath=True)
+def GridRadTransfer(lum, m, kappa, x, h, gridres, L, center=0, i0=0):
+    """ Simple radiative transfer solver
 
-    grid = np.ones((gridres,gridres,kappa.shape[-1]))*i0 
+    Solves the radiative transfer equation with emission and absorption along a grid of sightlines, in multiple bands
+
+    Parameters
+    ----------
+    lum: array_like
+        shape (N, Nbands) array of particle luminosities in the different bands
+    m: array_like
+        shape (N,) array of particle masses
+    kappa: array_like
+        shape (N,) array of particle opacities (dimensions: length^2 / mass)
+    x: array_like
+        shape (N,3) array of particle positions)
+    h: array_like
+        shape (N,) array containing kernel radii of the particles
+    center: array_like
+        shape (3,) array containing the center coordinates of the image
+    gridres: int
+        image resolution
+    L: float
+        size of the image window in length units
+    i0: array_like, optional
+        shape (Nbands,) or (gridres,greidres,Nbands) array of background intensities
+
+    Returns
+    -------
+    image: array_like
+        shape (res,res) array of integrated intensities, in the units of your luminosity units / length units^2 / sr
+    """
+
+#    don't have parallel working yet - trickier than simple surface density map because the order of extinctions and emissions matters
+#    if ncores = -1:
+#        Nchunks = get_num_threads()
+#    else:
+#        set_num_threads(ncores)
+#        Nchunks = ncores
+
+    x -= center
+    order = x[:,2].argsort() # get order for sorting by distance from observer
+
+    lum, kappa, x, h = lum[order], kappa[order], x[order], h[order]
+
+    Nbands = lum.shape[1]
+
+    image = np.zeros((gridres,gridres,Nbands))
+    image += i0
+    
     dx = L/(gridres-1)
     N = len(x)
-    lh2 = np.empty(3)
-    k = np.empty(3)
+
+    lh2 = np.empty(Nbands)
+    k = np.empty(Nbands)
     for i in range(N):
+        # unpack particle properties ##################
         xs = x[i] + L/2
         hs = h[i]
-        for b in range(kappa.shape[-1]): # unpack the brightness and opacity
-            lh2[b] = lum[i,b]/hs**2
+        for b in range(Nbands): # unpack the brightness and opacity
+            lh2[b] = lum[i,b]/(hs*hs)
             k[b] = kappa[i,b]
+
         mh2 = m[i]/hs**2
+
+        # done unpacking particle properties ##########
 
         gxmin = max(int((xs[0] - hs)/dx+1),0)
         gxmax = min(int((xs[0] + hs)/dx),gridres-1)
@@ -557,12 +606,12 @@ def GridRadTransfer(lum, m, kappa, x, h, gridres, L, i0):
             delta_x_Sqr = xs[0] - gx*dx
             delta_x_Sqr *= delta_x_Sqr
             for gy in range(gymin,gymax+1):
-                delta_y_Sqr = ys[0] - gy*dy
+                delta_y_Sqr = xs[1] - gy*dx
                 delta_y_Sqr *= delta_y_Sqr
                 r = delta_x_Sqr + delta_y_Sqr
                 if r > hs*hs: continue
 
-                q = np.sqrt(r) * hinv                
+                q = np.sqrt(r) / hs                
                 if q <= 0.5:
                     kernel = 1 - 6*q*q * (1-q)
                 elif q <= 1.0:
@@ -571,13 +620,13 @@ def GridRadTransfer(lum, m, kappa, x, h, gridres, L, i0):
                 else:
                     continue
                 kernel *= 1.8189136353359467
-                for b in range(kappa.shape[-1]):
-                    grid[gx,gy,b] += kernel * lh2[b] # emission
-                    tau = k[b] * mh2
-                    if tau < 0.3:
-                        grid[gx,gy,b] *= (1-tau)
-                    else:
-                        grid[gx,gy,b] *= np.exp(-tau)
-#                    grid[gx,gy,b] *= np.exp(- k[b] * mh2 * kernel) # absorption
                 
-    return grid
+                for b in range(Nbands):
+                    image[gx,gy,b] += kernel * lh2[b] # emission
+                    tau = k[b] * mh2 # optical depth through the sightline through the particle
+                    if tau < 0.3: # if optically thin use approximation
+                        image[gx,gy,b] *= (1-0.5*tau)/(1+0.5*tau)
+                    else:
+                        image[gx,gy,b] *= np.exp(-tau) #otherwise use the full (more expensive) solution
+                
+    return image / (4*np.pi) 
