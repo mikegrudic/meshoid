@@ -571,9 +571,9 @@ def GridRadTransfer(lum, m, kappa, x, h, gridres, L, center=0, i0=0):
 #        Nchunks = ncores
 
     x -= center
-    order = x[:,2].argsort() # get order for sorting by distance from observer
+    order = (-x[:,2]).argsort() # get order for sorting by distance from observer - farthest to nearest
 
-    lum, kappa, x, h = lum[order], kappa[order], x[order], h[order]
+    lum, m, kappa, x, h = np.copy(lum)[order], np.copy(m)[order], np.copy(kappa)[order], np.copy(x)[order], np.copy(h)[order]
 
     Nbands = lum.shape[1]
 
@@ -589,9 +589,12 @@ def GridRadTransfer(lum, m, kappa, x, h, gridres, L, center=0, i0=0):
         # unpack particle properties ##################
         xs = x[i] + L/2
         hs = h[i]
+        skip = True
         for b in range(Nbands): # unpack the brightness and opacity
             lh2[b] = lum[i,b]/(hs*hs)
             k[b] = kappa[i,b]
+            if lh2[b] > 0 or k[b] > 0: skip = False
+        if skip or m[i]==0 or hs==0: continue
 
         mh2 = m[i]/hs**2
 
