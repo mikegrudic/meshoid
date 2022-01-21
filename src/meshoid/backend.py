@@ -530,7 +530,7 @@ def GridDensity(f, x, h, center, size, res=100, box_size=-1):
     return grid / (dx*dx*dx)
 
 
-@njit#(fastmath=True)
+@njit(fastmath=True)
 def GridRadTransfer(lum, m, kappa, x, h, gridres, L, center=0, i0=0):
     """ Simple radiative transfer solver
 
@@ -563,12 +563,12 @@ def GridRadTransfer(lum, m, kappa, x, h, gridres, L, center=0, i0=0):
         shape (res,res) array of integrated intensities, in the units of your luminosity units / length units^2 / sr
     """
 
-#    don't have parallel working yet - trickier than simple surface density map because the order of extinctions and emissions matters
-#    if ncores = -1:
-#        Nchunks = get_num_threads()
-#    else:
-#        set_num_threads(ncores)
-#        Nchunks = ncores
+#   don't have parallel working yet - trickier than simple surface density map because the order of extinctions and emissions matters
+   # if ncores = -1:
+   #     Nchunks = get_num_threads()
+   # else:
+   #     set_num_threads(ncores)
+   #     Nchunks = ncores
 
     x -= center
     order = (-x[:,2]).argsort() # get order for sorting by distance from observer - farthest to nearest
@@ -578,7 +578,7 @@ def GridRadTransfer(lum, m, kappa, x, h, gridres, L, center=0, i0=0):
     Nbands = lum.shape[1]
 
     image = np.zeros((gridres,gridres,Nbands))
-    image += i0
+    image += i0*4*np.pi # factor of 4pi because we divide by that at the end
     
     dx = L/(gridres-1)
     N = len(x)
@@ -589,13 +589,13 @@ def GridRadTransfer(lum, m, kappa, x, h, gridres, L, center=0, i0=0):
         # unpack particle properties ##################
         xs = x[i] + L/2
         hs = h[i]
-        skip = True
+        if hs==0: continue
         for b in range(Nbands): # unpack the brightness and opacity
             lh2[b] = lum[i,b]/(hs*hs)
             k[b] = kappa[i,b]
             if lh2[b] > 0 or k[b] > 0: skip = False
-        if skip or m[i]==0 or hs==0: continue
-
+        if skip: continue
+        if m[i]==0: continue
         mh2 = m[i]/hs**2
 
         # done unpacking particle properties ##########
@@ -620,13 +620,12 @@ def GridRadTransfer(lum, m, kappa, x, h, gridres, L, center=0, i0=0):
                 elif q <= 1.0:
                     a = 1-q
                     kernel = 2 * a * a * a
-                else:
-                    continue
                 kernel *= 1.8189136353359467
                 
                 for b in range(Nbands):
                     image[gx,gy,b] += kernel * lh2[b] # emission
-                    tau = k[b] * mh2 # optical depth through the sightline through the particle
+                    tau = k[b] * kernel * mh2 # optical depth through the sightline through the particle
+                    if tau==0: continue
                     if tau < 0.3: # if optically thin use approximation
                         image[gx,gy,b] *= (1-0.5*tau)/(1+0.5*tau)
                     else:
