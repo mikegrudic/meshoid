@@ -202,9 +202,9 @@ def GridSurfaceDensity_core(f, x, h, center, size, res=100, box_size=-1):
             for gy in range(gymin,gymax+1):
                 delta_y_Sqr = xs[1] - gy*dx
                 delta_y_Sqr *= delta_y_Sqr
-                r = delta_x_Sqr + delta_y_Sqr
+                r = np.sqrt(delta_x_Sqr + delta_y_Sqr)
                 if r > hs: continue
-                q = np.sqrt(r) * hinv                
+                q = r * hinv                
                 if q <= 0.5:
                     kernel = 1 - 6*q*q * (1-q)
                 elif q <= 1.0:
