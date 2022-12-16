@@ -50,6 +50,7 @@ class Meshoid(object):
         self.pos = pos
         
         if self.boxsize is None:
+            self.boxsize = -1.
             self.center = np.average(self.pos, axis=0)
             self.L = 2*np.percentile(np.sum((self.pos-self.center)**2,axis=1),90)**0.5
         else:
@@ -352,6 +353,7 @@ class Meshoid(object):
         if weights is None: weights = self.m
 
         h = np.clip(self.hsml, size/(res-1), 1e100)
+
         f_grid = GridDensity(f, self.pos, h, center, size, res=res,box_size=self.boxsize)
                    
         return f_grid
