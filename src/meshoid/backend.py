@@ -43,7 +43,7 @@ def d2weights(d2_matrix2, d2_matrix, w):
                     result[i,j,k] += d2_matrix2[i,k,l] * d2_matrix[i,j,l] * w[i,j]
     return result
     
-@jit
+@njit
 def HsmlIter(neighbor_dists,  dim=3, error_norm=1e-6):
     """
     Performs the iteration to get smoothing lengths, according to Eq. 26 in Hopkins 2015 MNRAS 450.
