@@ -202,9 +202,9 @@ def GridSurfaceDensity_core(f, x, h, center, size, res=100, box_size=-1):
             for gy in range(gymin,gymax+1):
                 delta_y_Sqr = xs[1] - gy*dx
                 delta_y_Sqr *= delta_y_Sqr
-                r = delta_x_Sqr + delta_y_Sqr
+                r = np.sqrt(delta_x_Sqr + delta_y_Sqr)
                 if r > hs: continue
-                q = np.sqrt(r) * hinv                
+                q = r * hinv                
                 if q <= 0.5:
                     kernel = 1 - 6*q*q * (1-q)
                 elif q <= 1.0:
@@ -457,7 +457,7 @@ def WeightedGridInterp3D(f, wt, x, h, center, size, res=100, box_size=-1):
                                 
 
 @njit(fastmath=True)
-def GridDensity(f, x, h, center, size, res=100, box_size=-1):
+def GridDensity(f, x, h, center, size, res=100, box_size=-1.):
     """
     Estimates the density of the conserved quantity f possessed by each particle (e.g. mass, momentum, energy) on a 3D grid
     
@@ -480,7 +480,6 @@ def GridDensity(f, x, h, center, size, res=100, box_size=-1):
         xs = x3d[i]        
         hs = h[i]        
         hinv = 1/hs
-#        if True:
         if box_size < 0:
             gxmin = max(int((xs[0] - hs)/dx+1),0)
             gxmax = min(int((xs[0] + hs)/dx),res-1)
