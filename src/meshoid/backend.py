@@ -8,7 +8,7 @@ def NearestImage(x,boxsize):
     if abs(x) > boxsize/2: return -copysign(boxsize-abs(x),x)
     else: return x
 
-@jit(fastmath=True)
+@njit(fastmath=True)
 def d2matrix(dx):
     """
     Generates the Vandermonde matrix to solve if you want the weights for the least-squares Jacobian estimator
