@@ -7,7 +7,6 @@ from scipy.linalg import inv
 from scipy.special import comb
 from numba import jit, vectorize, float32, float64, njit, guvectorize
 from .backend import *
-import h5py
 
 class Meshoid(object):
     def __init__(self, pos, m=None, hsml=None, des_ngb=None, boxsize=None, verbose=False, particle_mask=None, n_jobs=1):
