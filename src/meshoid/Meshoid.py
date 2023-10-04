@@ -9,23 +9,15 @@ from numba import jit, vectorize, float32, float64, njit, guvectorize
 from .backend import *
 
 class Meshoid(object):
+    """Example docstring for Meshoid"
     def __init__(self, pos, m=None, hsml=None, des_ngb=None, boxsize=None, verbose=False, particle_mask=None, n_jobs=1):
         """
-        Creates a Meshoid object instance given at least the positions of the particles.
-        
-        Arguments:
-        x -- shape (N,3) array of particle positions
-
-        Keyword arguments:
-        m -- shape (N,) array of particle masses - defaults to 1    
-        h -- shape (N,) array of particle kernel lengths
-        des_ngb -- integer number of nearest neighbors (defaults to 4/20/32 for 1D/2D/3D)
-        boxsize -- size of box if periodic boundary conditions
-        verbose -- bool whether to print everything the code is doing to stdout
-        particle_mask -- array-like of indices of the particles you want to compute things for (defaults to all)
-        n_jobs -- number of logical cores available (default 1)
+        Blah blah blah.
+        Parameters
+        ---------
+        name
+            A string to assign to the `name` instance attribute.
         """
-    
         self.tree=None
         if len(pos.shape)==1:
             pos = pos[:,None]
