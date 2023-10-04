@@ -9,26 +9,36 @@ from numba import jit, vectorize, float32, float64, njit, guvectorize
 from .backend import *
 
 class Meshoid(object):
-    """Example docstring for Meshoid"""
-    def __init__(self, pos, m=None, hsml=None, des_ngb=None, boxsize=None, verbose=False, particle_mask=None, n_jobs=1):
-        """
-        Creates a Meshoid object instance given at least the positions of the particles.
-        Blah blah blah.
-        
+    """Meshoid object that stores particle data and kernel-weighting quantities, and implements various methods for integral and derivative operations.
+    
+    """
+
+    def __init__(self, pos, m=None, hsml=None, des_ngb=None, boxsize=None, verbose=False, particle_mask=None, n_jobs=-1):
+        """Construct a meshoid.
+
         Parameters
-        Arguments:
-        ---------
-        x -- shape (N,3) array of particle positions
-        name
-            A string to assign to the `name` instance attribute.
-        Keyword arguments:
-        m -- shape (N,) array of particle masses - defaults to 1    
-        h -- shape (N,) array of particle kernel lengths
-        des_ngb -- integer number of nearest neighbors (defaults to 4/20/32 for 1D/2D/3D)
-        boxsize -- size of box if periodic boundary conditions
-        verbose -- bool whether to print everything the code is doing to stdout
-        particle_mask -- array-like of indices of the particles you want to compute things for (defaults to all)
-        n_jobs -- number of logical cores available (default 1)
+        ----------
+        pos : array_like, shape (n,k)
+            The coordinates of the particle data
+        m : array_like, shape (n,), optional
+            Masses of the particles for computing e.g. mass densities, 
+        hsml : array_like, shape (n,), optional
+            Kernel support radii (e.g. SmoothingLength") of the particles. Can be computed adaptively where needed, if not provided.
+        des_ngb : positive int, optional
+            Number of neighbors to search for kernel density and weighting calculations  (defaults to 4/20/32 for 1D/2D/3D)
+        boxsize: positive float, optional
+            Side-length of box if periodic topology is to be assumed
+        verbose: boolean, optinal, default: False
+            Whether to print what meshoid is doing to stdout
+        particle_mask: array_like, optional
+            array-like of indices of the particles you want to compute things for
+        n_jobs: int, optional
+            number of cores to use for parallelization (default: -1, uses all cores available)
+
+        Returns
+        -------
+        Meshoid
+            Meshoid instance created from particle data
         """
         self.tree=None
         if len(pos.shape)==1:
@@ -84,9 +94,12 @@ class Meshoid(object):
         """
         Computes the weights required to compute least-squares gradient estimators on data colocated on the meshoid
 
-        Keyword arguments:
-        order - whether to compute weights for first derivatives or for the Jacobian (default: 1)
-        weighted - whether to kernel-weight the least-squares gradient solutions (default: True)
+        Parameters
+        ----------
+        order: int, optional 
+            1 to compute weights for first derivatives, 2 for the Jacobian matrix (default: 1)
+        weighted: boolean, optional 
+            whether to kernel-weight the least-squares gradient solutions (default: True)
         """
         if self.weights is None: self.TreeUpdate()
         
@@ -139,7 +152,8 @@ class Meshoid(object):
         """
         Returns the effective particle volume
 
-        Returns:
+        Returns
+        -------
         self.vol - (N,) array of particle volumes
         """
         return self.vol
@@ -148,7 +162,8 @@ class Meshoid(object):
         """
         Returns the indices of the N_ngb nearest neighbors of each particle in a (N, N_ngb) array
 
-        Returns:
+        Returns
+        -------
         self.ngb - (N,ngb) array of the indices of the each particle's Nngb nearest neighbors
         """
         if self.ngb is None: self.TreeUpdate()
@@ -158,7 +173,8 @@ class Meshoid(object):
         """
         Returns the distances of the N_ngb nearest neighbors of each particle in a (N, N_ngb) array
 
-        Returns:
+        Returns
+        -------
         self.ngbdist - (N,Nngb) array of distances to nearest neighbors of each particle.
         """
         if self.ngbdist is None: self.TreeUpdate()
@@ -168,29 +184,36 @@ class Meshoid(object):
         """
         Returns the neighbor kernel radii of of each particle in a (N,) array
 
-        Returns:
-        self.hsml - (N,) array of particle smoothing lengths
+        Returns
+        -------
+        (N,) array of particle smoothing lengths
         """
+        if self.hsml is None: self.TreeUpdate()
         return self.hsml
 
     def Density(self):
         """
         Returns the mass density (or number density, if mass not provided) of each particle in a (N,) array
 
-        Returns:
+        Returns
+        -------
         self.density - (N,) array of particle densities
         """
+        if self.density is None: self.TreeUpdate()
         return self.density
 
     def D(self, f):
         """
         Computes the kernel-weighted least-squares gradient estimator of the function f.
 
-        Arguments:
-        f -- shape (N,...) array of (possibly vector- or tensor-valued) function values (N is the total number of particles)
+        Parameters
+        ----------
+        f : array_like
+          shape (N,...) array of (possibly vector- or tensor-valued) function values (N is the total number of particles)
 
-        Returns:
-        gradf - (Nmask, ..., dim) array of partial derivatives, evaluated at the positions of the particles in the particle mask
+        Returns
+        -------
+        (Nmask, ..., dim) array of partial derivatives, evaluated at the positions of the particles in the particle mask
         """
             
         if self.ngb is None: self.TreeUpdate()
@@ -205,11 +228,13 @@ class Meshoid(object):
         """
         Computes the kernel-weighted least-squares Jacobian estimator of the function f.
 
-        Arguments:
+        Parameters
+        ----------
         f -- shape (N,...) array of (possibly vector- or tensor-valued) function values (N is the total number of particles)
 
-        Returns:
-        jacf - (Nmask, ..., dim,dim) array of partial derivatives, evaluated at the positions of the particles in the particle mask
+        Returns
+        -------
+        (Nmask, ..., dim,dim) array of partial derivatives, evaluated at the positions of the particles in the particle mask
         """
         if self.ngb is None: self.TreeUpdate()
             
@@ -224,11 +249,14 @@ class Meshoid(object):
         """
         Computes the curl of a vector field.
 
-        Arguments:
-        v -- shape (N,3) array containing a vector field colocated on the meshoid
+        Parameters
+        ----------
+        v : array_like
+          shape (N,3) array containing a vector field colocated on the meshoid
 
-        Returns:
-        curlv - shape (N,3) array containing the curl of vector field v
+        Returns
+        -------
+        shape (N,3) array containing the curl of vector field v
         """
         dv = self.D(v[self.particle_mask])
         return np.c_[dv[:,1,2]-dv[:,2,1], dv[:,0,2]-dv[:,2,0], dv[:,0,1] - dv[:,1,0]]
@@ -237,11 +265,14 @@ class Meshoid(object):
         """
         Computes the divergence of a vector field.
 
-        Arguments:
-        v -- shape (N,3) array containing a vector field colocated on the meshoid
+        Parameters
+        ----------
+        v :
+          shape (N,3) array containing a vector field colocated on the meshoid
 
-        Returns:
-        divv -- shape (N,) array containing the divergence of v
+        Returns
+        -------
+        shape (N,) array containing the divergence of v
         """        
         dv = self.D(v[self.particle_mask])
         return dv[:,0,0]+ dv[:,1,1] + dv[:,2,2]
@@ -250,7 +281,8 @@ class Meshoid(object):
         """
         Computes the volume integral of a quantity over the volume partition of the meshoid
 
-        Arguments:
+        Parameters
+        ----------
         f -- Shape (N, ...) function colocated on the meshoid
 
         Returns:
@@ -264,10 +296,13 @@ class Meshoid(object):
         """
         Computes the standard deviation of a quantity over all nearest neighbours
 
-        Arguments:
-        f -- Shape (N, ...) function colocated on the meshoid
+        Parameters
+        ----------
+        f: array_like, shape (N ,...)
+            Shape (N, ...) function colocated on the meshoid
 
-        Returns:
+        Returns
+        -------
         sigma_f -- shape (N,...) array of standard deviations of f over the kernel
         """
         if self.ngb is None: self.TreeUpdate()
@@ -278,10 +313,13 @@ class Meshoid(object):
         """
         Computes the kernel-weighted average of a function
 
-        Arguments:
-        f -- Shape (N, ...) function colocated on the meshoid
+        Parameters
+        ----------
+        f : array_like, shape (N ,...)
+            Shape (N, ...) function colocated on the meshoid
 
-        returns:
+        Returns
+        -------
         Shape (N, ...) array of kernel-averaged values of f
         """            
         if self.weights is None: self.TreeUpdate()        
@@ -289,15 +327,22 @@ class Meshoid(object):
 
     def Slice(self, f, size=None, plane='z', center=None, res=100, gridngb=32):
         """
-        Gives the kernel-weighted value of a function f deposited on a Cartesion grid slicing through the meshoid.
+        Gives the kernel-weighted value of a function f deposited on a Cartesian grid slicing through the meshoid.
 
-        Keyword arguments:
-        f - the quantity you want the surface density of (default: particle mass)
-        size - the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
-        plane - the direction of the normal of the slicing plane, one of x, y, or z (default: 'z'')
-        center - (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
-        res - the resolution of the grid of sightlines (default: 128)
-        gridngb - how many nearest neighbors the gridpoints should search for to construct their neighbor kernel(default: 32)        
+        Parameters
+        ----------
+        f :
+          the quantity you want the surface density of (default: particle density)
+        size :
+          the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
+        plane :
+          the direction of the normal of the slicing plane, one of x, y, or z (default: 'z'')
+        center :
+          (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
+        res :
+          the resolution of the grid of sightlines (default: 128)
+        gridngb :
+          how many nearest neighbors the gridpoints should search for to construct their neighbor kernel(default: 32)
         """
         if center is None: center = self.center
         if size is None: size = self.L
@@ -328,7 +373,7 @@ class Meshoid(object):
 
     def InterpToGrid(self, f, weights=None, size=None, center=None, res=128, method='kernel'):
         """
-        Interpolates the quantity f defined on the meshoid to a Cartesian grid
+        Interpolates the quantity f defined on the meshoid to a 3D Cartesian grid
 
         """
         if center is None: center = self.center
@@ -349,7 +394,7 @@ class Meshoid(object):
 
     def DepositToGrid(self, f, weights=None, size=None, center=None, res=128):
         """
-        Deposits a conserved quantity (e.g. mass, momentum, energy) to a 3D grid and returns the density of that quantity that grid
+        Deposits a conserved quantity (e.g. mass, momentum, energy) to a 3D grid and returns the density of that quantity on that grid
         """
         if center is None: center = self.center
         if size is None: size = self.L
@@ -368,16 +413,24 @@ class Meshoid(object):
         """
         Computes the surface density of a quantity f defined on the meshoid on a grid of sightlines. e.g. if f is the particle masses, you will get mass surface density.
 
-        Keyword arguments:
-        f - the quantity you want the surface density of (default: particle mass)
-        size - the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
-        plane - the direction you want to project along, of x, y, or z (default: 'z')
-        center - (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
-        res - the resolution of the grid of sightlines (default: 128)
-        smooth_fac - smoothing lengths are increased by this factor (default: 1.)
+        Parameters
+        ----------
+        f :
+          the quantity you want the surface density of (default: particle mass)
+        size :
+          the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
+        plane :
+          the direction you want to project along, of x, y, or z (default: 'z')
+        center :
+          (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
+        res :
+          the resolution of the grid of sightlines (default: 128)
+        smooth_fac :
+          smoothing lengths are increased by this factor (default: 1.)
 
-        Returns:
-        (res,res) array containing the surface densities along sightlines
+        Returns
+        -------
+        (res,res) array containing the column densities integrated along sightlines
         """
         if f is None: f = self.m
         if center is None: center = self.center
@@ -387,18 +440,24 @@ class Meshoid(object):
     def ProjectedAverage(self, f, size=None, plane='z', center=None, res=128, smooth_fac=1.):
         """
         Computes the average value of a quantity f along a Cartesian grid of sightlines from +/- infinity.
-
-        Arguments:
-        f - (N,) array containing the quantity you want the average of
         
-        Keyword arguments:
-        size - the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
-        plane - the direction you want to project along, of x, y, or z (default: 'z')
-        center - (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
-        res - the resolution of the grid of sightlines (default: 128)
-        smooth_fac - smoothing lengths are increased by this factor (default: 1.)
+        Parameters
+        ----------
+        f :
+          (N,) array containing the quantity you want the average of
+        size :
+          the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
+        plane :
+          the direction you want to project along, of x, y, or z (default: 'z')
+        center :
+          (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
+        res :
+          the resolution of the grid of sightlines (default: 128)
+        smooth_fac :
+          smoothing lengths are increased by this factor (default: 1.)
 
-        Returns:
+        Returns
+        -------
         (res,res) array containing the averages along sightlines        
         """
         if center is None: center = self.center
@@ -408,18 +467,24 @@ class Meshoid(object):
     def Projection(self, f, size=None, plane='z', center=None, res=128, smooth_fac=1.):
         """
         Computes the integral of quantity f along a Cartesian grid of sightlines from +/- infinity. e.g. plugging in 3D density for f will return surface density.
-
-        Arguments:
-        f - (N,) array containing the quantity you want the projected integral of
         
-        Keyword arguments:
-        size - the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
-        plane - the direction you want to project along, of x, y, or z (default: 'z')
-        center - (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
-        res - the resolution of the grid of sightlines (default: 128)
-        smooth_fac - smoothing lengths are increased by this factor (default: 1.)
+        Parameters
+        ----------
+        f :
+          (N,) array containing the quantity you want the projected integral of
+        size :
+          the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
+        plane :
+          the direction you want to project along, of x, y, or z (default: 'z')
+        center :
+          (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
+        res :
+          the resolution of the grid of sightlines (default: 128)
+        smooth_fac :
+          smoothing lengths are increased by this factor (default: 1.)
         
-        Returns:
+        Returns
+        -------
         (res, res) array containing the projected values
         """
         if center is None: center = self.center
@@ -430,13 +495,13 @@ class Meshoid(object):
         """
         Computes the kernel density estimate of the meshoid points on a 1D grid
 
-        Arguments:
+        Parameters
+        ----------
         grid - 1D array of coordintes upon which to compute the KDE
-
-        Keyword arguments:
         bandwidth - constant bandwidth of the kernel, defined as the radius of support of the cubic spline kernel.
 
-        Returns:
+        Returns
+        -------
         array containing the density of particles defined at the grid points
         """
 
