@@ -6,6 +6,10 @@ Meshoid is a Python package for analyzing meshless particle data, performing suc
 
 # [API Documentation](https://meshoid.readthedocs.io/en/latest/)
 
+# Installation
+
+Install from PyPI via `pip install meshoid` or pull this repo and run `pip install .` from the repo directory.
+
 # Walkthrough
 First let's import pylab and Meshoid.
 
@@ -16,6 +20,7 @@ from meshoid import Meshoid
 ```
 
 Now let's load some of the gas data fields from a FIRE snapshot using h5py. In this case we'll perform a density cut at n_H ~ .1 cm^-3 to narrow it down to just the ISM.
+
 
 
 ```python
