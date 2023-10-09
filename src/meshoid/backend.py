@@ -138,9 +138,7 @@ def GridSurfaceDensityMultigrid(
 
     grid = np.zeros((4, 4))
     for i in range(2, len(res_bins) - 1):
-        #        print("Upsampling...")
         grid = UpsampleGrid(grid)
-        #        print("Done!")
         Ni = grid.shape[0]
         # bin particles by smoothing length to decide which resolution level they get deposited at
         idx = (h / N_grid_kernel < res_bins[i]) & (h / N_grid_kernel >= res_bins[i + 1])
@@ -158,7 +156,6 @@ def GridSurfaceDensityMultigrid(
     return grid
 
 
-# @njit(fastmath=True)
 def UpsampleGrid(grid):
     N = grid.shape[0]
     x1 = np.linspace(0.5 / N, 1 - 0.5 / N, N)  # original coords
@@ -166,28 +163,23 @@ def UpsampleGrid(grid):
     return RectBivariateSpline(x1, x1, grid)(x2, x2)  # RectBivariateSpline(x1,
 
 
-#    newgrid = np.empty((grid.shape[0]*2, grid.shape[1]*2))
-#    for i in range(grid.shape[0]):
-#        for j in range(grid.shape[1]):
-#            newgrid[2*i,2*j] = grid[i,j]
-#            newgrid[2*i+1,2*j] = grid[i,j]
-#            newgrid[2*i,2*j+1] = grid[i,j]
-#            newgrid[2*i+1,2*j+1] = grid[i,j]
-#    return newgrid
-
-
 @njit(parallel=True, fastmath=True)
-def GridSurfaceDensity(f, x, h, center, size, res=100, box_size=-1, parallel=False):
+def GridSurfaceDensity(
+    f, x, h, center, size, res=100, box_size=-1, parallel=False, conservative=False
+):
     """
     Computes the surface density of conserved quantity f colocated at positions x with smoothing lengths h. E.g. plugging in particle masses would return mass surface density. The result is on a Cartesian grid of sightlines, the result being the density of quantity f integrated along those sightlines.
 
-    Arguments:
+    Parameters
+    ----------
     f - (N,) array of the conserved quantity that you want the surface density of (e.g. particle masses)
     x - (N,3) array of particle positions
     h - (N,) array of particle smoothing lengths
     center - (2,) array containing the coorindates of the center of the map
     size - side-length of the map
     res - resolution of the grid
+    parallel - whether to run in parallel, if numeric then how many cores
+
     """
 
     if parallel:
@@ -199,20 +191,35 @@ def GridSurfaceDensity(f, x, h, center, size, res=100, box_size=-1, parallel=Fal
         )  # will store separate grids and sum them at the end
 
         for i in prange(Nthreads):
-            sigmas[i] = GridSurfaceDensity_core(
-                f[i * chunksize : (i + 1) * chunksize],
-                x[i * chunksize : (i + 1) * chunksize],
-                h[i * chunksize : (i + 1) * chunksize],
-                center,
-                size,
-                res,
-                box_size,
-            )
+            # for i in range(Nthreads):
+            if conservative:
+                sigmas[i] = GridSurfaceDensity_conservative_core(
+                    f[i * chunksize : (i + 1) * chunksize],
+                    x[i * chunksize : (i + 1) * chunksize],
+                    h[i * chunksize : (i + 1) * chunksize],
+                    center,
+                    size,
+                    res,
+                    box_size,
+                )
+            else:
+                sigmas[i] = GridSurfaceDensity_core(
+                    f[i * chunksize : (i + 1) * chunksize],
+                    x[i * chunksize : (i + 1) * chunksize],
+                    h[i * chunksize : (i + 1) * chunksize],
+                    center,
+                    size,
+                    res,
+                    box_size,
+                )
         return sigmas.sum(0)
     else:
-        return GridSurfaceDensity_core(
-            f, x, h, center, size, res=res, box_size=box_size
-        )
+        if conservative:
+            return GridSurfaceDensity_conservative_core(
+                f, x, h, center, size, res, box_size
+            )
+        else:
+            return GridSurfaceDensity_core(f, x, h, center, size, res, box_size)
 
 
 @njit(fastmath=True)
@@ -267,10 +274,85 @@ def GridSurfaceDensity_core(f, x, h, center, size, res=100, box_size=-1):
     return grid
 
 
-# @njit(fastmath=True, parallel=True)
-# def GridSurfaceDensity_parallel(f, x, h, center, size, res=100, box_size=-1):
+@njit(fastmath=True)
+def GridSurfaceDensity_conservative_core(f, x, h, center, size, res=100, box_size=-1):
+    """
+    Computes the surface density of conserved quantity f colocated at positions x with smoothing lengths h.
+    E.g. plugging in particle masses would return mass surface density.
 
-#    return sigmas.sum(0)
+    This method performs a kernel-weighted deposition so that the quantity deposited to the grid is conserved to machine precision.
+
+    Arguments:
+    f - (N,) array of the conserved quantity that you want the surface density of (e.g. particle masses)
+    x - (N,3) array of particle positions
+    h - (N,) array of particle smoothing lengths
+    center - (2,) array containing the coorindates of the center of the map
+    size - side-length of the map
+    res - resolution of the grid
+    """
+    dx = size / (res - 1)
+    dx2inv = 1 / (dx * dx)
+
+    x2d = x[:, :2] - center[:2] + size / 2
+
+    grid = np.zeros((res, res))
+
+    N = len(x)
+    for i in range(N):
+        xs = x2d[i]
+        hs = h[i]
+        if hs < dx:
+            hs = dx
+        hinv = 1 / hs
+
+        gxmin = max(int((xs[0] - hs) / dx + 1), 0)
+        gxmax = min(int((xs[0] + hs) / dx), res - 1)
+        gymin = max(int((xs[1] - hs) / dx + 1), 0)
+        gymax = min(int((xs[1] + hs) / dx), res - 1)
+
+        total_wt = 0
+        for gx in range(gxmin, gxmax + 1):
+            delta_x_Sqr = xs[0] - gx * dx
+            delta_x_Sqr *= delta_x_Sqr
+            for gy in range(gymin, gymax + 1):
+                delta_y_Sqr = xs[1] - gy * dx
+                delta_y_Sqr *= delta_y_Sqr
+                r = np.sqrt(delta_x_Sqr + delta_y_Sqr)
+                if r > hs:
+                    continue
+                q = r * hinv
+                if q <= 0.5:
+                    kernel = 1 - 6 * q * q * (1 - q)
+                elif q <= 1.0:
+                    a = 1 - q
+                    kernel = 2 * a * a * a
+                else:
+                    continue
+                total_wt += kernel
+
+        if total_wt == 0:
+            continue
+
+        for gx in range(gxmin, gxmax + 1):
+            delta_x_Sqr = xs[0] - gx * dx
+            delta_x_Sqr *= delta_x_Sqr
+            for gy in range(gymin, gymax + 1):
+                delta_y_Sqr = xs[1] - gy * dx
+                delta_y_Sqr *= delta_y_Sqr
+                r = np.sqrt(delta_x_Sqr + delta_y_Sqr)
+                if r > hs:
+                    continue
+                q = r * hinv
+                if q <= 0.5:
+                    kernel = 1 - 6 * q * q * (1 - q)
+                elif q <= 1.0:
+                    a = 1 - q
+                    kernel = 2 * a * a * a
+                else:
+                    continue
+                grid[gx, gy] += kernel * f[i] / total_wt
+
+    return grid * dx2inv
 
 
 @njit(fastmath=True)

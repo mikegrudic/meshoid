@@ -518,7 +518,14 @@ class Meshoid(object):
         return f_grid
 
     def SurfaceDensity(
-        self, f=None, size=None, plane="z", center=None, res=128, smooth_fac=1.0
+        self,
+        f=None,
+        size=None,
+        plane="z",
+        center=None,
+        res=128,
+        smooth_fac=1.0,
+        conservative=False,
     ):
         """
         Computes the surface density of a quantity f defined on the meshoid on a grid of sightlines. e.g. if f is the particle masses, you will get mass surface density.
@@ -557,6 +564,7 @@ class Meshoid(object):
             res,
             self.boxsize,
             parallel=(False if self.n_jobs == 1 else True),
+            conservative=conservative,
         )
 
     def ProjectedAverage(
