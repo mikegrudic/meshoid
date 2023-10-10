@@ -248,10 +248,10 @@ def GridSurfaceDensity_core(f, x, h, center, size, res=100, box_size=-1):
         hinv = 1 / hs
         mh2 = f[i] * hinv * hinv
 
-        gxmin = max(int((xs[0] - hs) / dx + 1), 0)
-        gxmax = min(int((xs[0] + hs) / dx), res - 1)
-        gymin = max(int((xs[1] - hs) / dx + 1), 0)
-        gymax = min(int((xs[1] + hs) / dx), res - 1)
+        gxmin = int((xs[0] - hs) / dx + 1)
+        gxmax = int((xs[0] + hs) / dx)
+        gymin = int((xs[1] - hs) / dx + 1)
+        gymax = int((xs[1] + hs) / dx)
 
         for gx in range(gxmin, gxmax + 1):
             delta_x_Sqr = xs[0] - gx * dx
