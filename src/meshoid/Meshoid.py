@@ -58,7 +58,7 @@ class Meshoid(object):
         if particle_mask is None:
             self.particle_mask = np.arange(self.N)
         else:
-            if particle_mass.min() == 0 and particle_mask.max() == 1:  # boolean mask
+            if particle_mask.dtype == np.dtype('bool'):  # boolean mask
                 self.particle_mask = np.arange(len(particle_mask))[particle_mask]
             else:
                 self.particle_mask = particle_mask
@@ -417,7 +417,7 @@ class Meshoid(object):
                 np.c_[x.flatten(), np.zeros(res * res), y.flatten()] + center
             )
 
-        ngbdist, ngb = self.tree.query(self.slicegrid, gridngb)
+        ngbdist, ngb = self.tree.query(self.slicegrid, gridngb, workers=self.n_jobs)
 
         if gridngb > 1:
             hgrid = HsmlIter(ngbdist, dim=3, error_norm=1e-3)
