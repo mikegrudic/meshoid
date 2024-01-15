@@ -58,7 +58,7 @@ class Meshoid(object):
         if particle_mask is None:
             self.particle_mask = np.arange(self.N)
         else:
-            if particle_mask.dtype == np.dtype('bool'):  # boolean mask
+            if particle_mask.dtype == np.dtype("bool"):  # boolean mask
                 self.particle_mask = np.arange(len(particle_mask))[particle_mask]
             else:
                 self.particle_mask = particle_mask
@@ -75,7 +75,7 @@ class Meshoid(object):
         self.pos = pos
 
         if self.boxsize is None:
-            self.boxsize = -1.0
+            # self.boxsize = -1.0
             self.center = np.median(self.pos, axis=0)
             self.L = (
                 2
@@ -121,6 +121,9 @@ class Meshoid(object):
         if self.weights is None:
             self.TreeUpdate()
 
+        if self.verbose:
+            print(f"Computing weights for derivatives of order {order}...")
+
         dx = self.pos[self.ngb] - self.pos[self.particle_mask][:, None, :]
         self.dx = dx
 
@@ -138,12 +141,10 @@ class Meshoid(object):
                 w = self.weights
             else:
                 w = np.ones_like(self.weights)
-            Nngb = self.des_ngb
-            N_derivs = 2 * self.dim + comb(self.dim, 2, exact=True)
             dx_matrix = d2matrix(dx)
             dx_matrix2 = np.einsum(
                 "ij,ijk,ijl->ikl", w, dx_matrix, dx_matrix, optimize="optimal"
-            )
+            )  # w A^T A to get least-squares matrix
             dx_matrix2 = np.linalg.inv(dx_matrix2)
             self.d2_condition_number = np.linalg.cond(dx_matrix2)
 
@@ -159,10 +160,13 @@ class Meshoid(object):
         """
         Computes or updates the neighbor lists, smoothing lengths, and densities of particles.
         """
-        if self.verbose:
-            print("Finding nearest neighbours...")
 
+        if self.verbose:
+            print("Building tree...")
         self.tree = cKDTree(self.pos, boxsize=self.boxsize)
+
+        if self.verbose:
+            print("Finding neighbors...")
         self.ngbdist, self.ngb = self.tree.query(
             self.pos[self.particle_mask], self.des_ngb, workers=self.n_jobs
         )

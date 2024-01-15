@@ -1,40 +1,42 @@
 from numba import (
-    jit,
     vectorize,
     float32,
     float64,
-    cfunc,
     njit,
+    jit,
     prange,
     get_num_threads,
-    set_num_threads,
 )
 import numpy as np
-from scipy.special import comb
-from scipy.interpolate import interp2d, RectBivariateSpline
+from scipy.interpolate import RectBivariateSpline
 
 
 @njit(fastmath=True)
-def NearestImage(x, boxsize):
-    if abs(x) > boxsize / 2:
-        return -copysign(boxsize - abs(x), x)
-    else:
-        return x
+def nearest_image(dx_coord, boxsize):
+    """Returns separation vector for nearest image, given the coordinate
+    difference dx_coord and assuming coordinates run from 0 to boxsize"""
+    if np.abs(dx_coord) > boxsize / 2:
+        return -np.copysign(boxsize - np.abs(dx_coord), dx_coord)
+    return dx_coord
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, parallel=True)
 def d2matrix(dx):
     """
-    Generates the Vandermonde matrix to solve if you want the weights for the least-squares Jacobian estimator
+    Generates the Vandermonde matrix to solve if you want the weights for the
+    least-squares Jacobian estimator
 
     Arguments:
-    dx - (N, Nngb, dim) array of coordinate differences between particle N and its nearest neighbours
+        dx - (N, Nngb, dim) array of coordinate differences between particle N
+        and its nearest neighbours
 
     """
     N, Nngb, dim = dx.shape
-    N_derivs = 2 * dim + comb(dim, 2, exact=True)
+    N_derivs = {1: 2, 2: 5, 3: 9}[
+        dim
+    ]  # in 3D: 3 first derivatives + 6 unique second derivatives
     A = np.empty((N, Nngb, N_derivs), dtype=np.float64)
-    for k in range(N):
+    for k in prange(N):
         for i in range(Nngb):
             for j in range(N_derivs):
                 if j < dim:
@@ -48,12 +50,11 @@ def d2matrix(dx):
     return A
 
 
-@njit
+@njit(fastmath=True, parallel=True)
 def d2weights(d2_matrix2, d2_matrix, w):
     N, Nngb, Nderiv = d2_matrix.shape
-    #    print(d2_matrix2.shape, d2_matrix.shape, w.shape)
     result = np.zeros((N, Nngb, Nderiv), dtype=np.float64)
-    for i in range(N):
+    for i in prange(N):
         for j in range(Nngb):
             for k in range(Nderiv):
                 for l in range(Nderiv):
@@ -63,7 +64,7 @@ def d2weights(d2_matrix2, d2_matrix, w):
     return result
 
 
-@njit
+@njit(fastmath=True, parallel=True)
 def HsmlIter(neighbor_dists, dim=3, error_norm=1e-6):
     """
     Performs the iteration to get smoothing lengths, according to Eq. 26 in Hopkins 2015 MNRAS 450.
@@ -85,15 +86,13 @@ def HsmlIter(neighbor_dists, dim=3, error_norm=1e-6):
     hsml = np.zeros(N)
     n_ngb = 0.0
     bound_coeff = 1.0 / (1 - (2 * norm) ** (-1.0 / 3))
-    for i in range(N):
+    for i in prange(N):
         upper = neighbor_dists[i, des_ngb - 1] * bound_coeff
         lower = neighbor_dists[i, 1]
         error = 1e100
-        count = 0
         while error > error_norm:
             h = (upper + lower) / 2
             n_ngb = 0.0
-            dngb = 0.0
             q = 0.0
             for j in range(des_ngb):
                 q = neighbor_dists[i, j] / h
@@ -117,7 +116,8 @@ def Kernel(q):
     Un-normalized cubic-spline kernel function
 
     Arguments:
-    q - array containing radii at which to evaluate the kernel, scaled to the kernel support radius (between 0 and 1)
+        q - array containing radii at which to evaluate the kernel,
+        scaled to the kernel support radius (between 0 and 1)
     """
     if q <= 0.5:
         return 1 - 6 * q**2 + 6 * q**3
@@ -168,7 +168,10 @@ def GridSurfaceDensity(
     f, x, h, center, size, res=100, box_size=-1, parallel=False, conservative=False
 ):
     """
-    Computes the surface density of conserved quantity f colocated at positions x with smoothing lengths h. E.g. plugging in particle masses would return mass surface density. The result is on a Cartesian grid of sightlines, the result being the density of quantity f integrated along those sightlines.
+    Computes the surface density of conserved quantity f colocated at positions
+    x with smoothing lengths h. E.g. plugging in particle masses would return
+    mass surface density. The result is on a Cartesian grid of sightlines, the
+    result being the density of quantity f integrated along those sightlines.
 
     Parameters
     ----------
