@@ -4,7 +4,9 @@
 import numpy as np
 from scipy.spatial import cKDTree
 from numba import jit, vectorize, float32, float64, njit, guvectorize
-from .backend import *
+from .grid_deposition import *
+from .kernel_density import *
+from .derivatives import *
 
 
 class Meshoid:
@@ -125,9 +127,8 @@ class Meshoid:
         if not weighted:
             weights = np.ones_like(weights)
 
-
         # this is bad, very memory hungry!
-        #dx = self.pos[self.ngb] - self.pos[self.particle_mask][:, None, :]
+        # dx = self.pos[self.ngb] - self.pos[self.particle_mask][:, None, :]
         if order == 1:
             # dx_matrix = np.einsum(
             #     "ij,ijk,ijl->ikl", weights, dx, dx, optimize="optimal"
@@ -137,8 +138,8 @@ class Meshoid:
             # self.dweights = np.einsum(
             #     "ikl,ijl,ij->ijk", dx_matrix, dx, weights, optimize="optimal"
             # )  # gradient estimator is sum over j of dweight_ij (f_j - f_i)
-           # self.dweights = 
-            self.dweights = 
+            # self.dweights =
+            self.dweights = compute_dweights(self.pos, self.ngb)
         elif order == 2:
             dx_matrix = d2matrix(dx)
             dx_matrix2 = np.einsum(
