@@ -3,27 +3,25 @@
 
 import numpy as np
 from scipy.spatial import cKDTree
-from scipy.linalg import inv
-from scipy.special import comb
 from numba import jit, vectorize, float32, float64, njit, guvectorize
 from .backend import *
 
 
-class Meshoid(object):
+class Meshoid:
     """Meshoid object that stores particle data and kernel-weighting quantities, and implements various methods for integral and derivative operations."""
 
     def __init__(
         self,
         pos,
         m=None,
-        hsml=None,
+        kernel_radius=None,
         des_ngb=None,
         boxsize=None,
         verbose=False,
         particle_mask=None,
         n_jobs=-1,
     ):
-        """Construct a meshoid.
+        """Construct a meshoid instance.
 
         Parameters
         ----------
@@ -31,18 +29,22 @@ class Meshoid(object):
             The coordinates of the particle data
         m : array_like, shape (n,), optional
             Masses of the particles for computing e.g. mass densities,
-        hsml : array_like, shape (n,), optional
-            Kernel support radii (e.g. SmoothingLength") of the particles. Can be computed adaptively where needed, if not provided.
+        kernel_radius : array_like, shape (n,), optional
+            Kernel support radii (e.g. SmoothingLength") of the particles. Can
+            be computed adaptively where needed, if not provided.
         des_ngb : positive int, optional
-            Number of neighbors to search for kernel density and weighting calculations  (defaults to 4/20/32 for 1D/2D/3D)
+            Number of neighbors to search for kernel density and weighting
+            calculations  (defaults to 4/20/32 for 1D/2D/3D)
         boxsize: positive float, optional
             Side-length of box if periodic topology is to be assumed
         verbose: boolean, optinal, default: False
             Whether to print what meshoid is doing to stdout
         particle_mask: array_like, optional
-            array-like of integer indices OR boolean mask of the particles you want to compute things for
+            array-like of integer indices OR boolean mask of the particles you
+            want to compute things for
         n_jobs: int, optional
-            number of cores to use for parallelization (default: -1, uses all cores available)
+            number of cores to use for parallelization (default: -1, uses all
+            cores available)
 
         Returns
         -------
@@ -64,7 +66,7 @@ class Meshoid(object):
                 self.particle_mask = particle_mask
         self.Nmask = len(self.particle_mask)
 
-        if des_ngb == None:
+        if des_ngb is None:
             des_ngb = {1: 4, 2: 20, 3: 32}[self.dim]
 
         self.des_ngb = des_ngb
@@ -93,18 +95,16 @@ class Meshoid(object):
         self.m = m[self.particle_mask]
 
         self.ngb = None
-        self.hsml = hsml
-        self.weights = None
+        self.kernel_radius = kernel_radius
         self.dweights = None
         self.d2weights = None
+        self.dweights_3rdorder = None
         self.sliceweights = None
-        self.slicegrid = None
 
-        if self.hsml is None:
-            #            self.hsml = -np.ones(self.N)
+        if self.kernel_radius is None:
             self.TreeUpdate()
         else:
-            self.vol = self.volnorm * self.hsml**self.dim / self.des_ngb
+            self.vol = self.volnorm * self.kernel_radius**self.dim / self.des_ngb
             self.density = self.m / self.vol
 
     def ComputeDWeights(self, order=1, weighted=True):
@@ -118,32 +118,31 @@ class Meshoid(object):
         weighted: boolean, optional
             whether to kernel-weight the least-squares gradient solutions (default: True)
         """
-        if self.weights is None:
-            self.TreeUpdate()
-
         if self.verbose:
             print(f"Computing weights for derivatives of order {order}...")
 
-        dx = self.pos[self.ngb] - self.pos[self.particle_mask][:, None, :]
-        self.dx = dx
+        weights = self.get_kernel_weights()
+        if not weighted:
+            weights = np.ones_like(weights)
 
+
+        # this is bad, very memory hungry!
+        #dx = self.pos[self.ngb] - self.pos[self.particle_mask][:, None, :]
         if order == 1:
-            dx_matrix = np.einsum(
-                "ij,ijk,ijl->ikl", self.weights, dx, dx, optimize="optimal"
-            )  # matrix for least-squares fit to a linear function
+            # dx_matrix = np.einsum(
+            #     "ij,ijk,ijl->ikl", weights, dx, dx, optimize="optimal"
+            # )  # matrix for least-squares fit to a linear function
 
-            dx_matrix = np.linalg.inv(dx_matrix)  # invert the matrices
-            self.dweights = np.einsum(
-                "ikl,ijl,ij->ijk", dx_matrix, dx, self.weights, optimize="optimal"
-            )  # gradient estimator is sum over j of dweight_ij (f_j - f_i)
+            # dx_matrix = np.linalg.inv(dx_matrix)  # invert the matrices
+            # self.dweights = np.einsum(
+            #     "ikl,ijl,ij->ijk", dx_matrix, dx, weights, optimize="optimal"
+            # )  # gradient estimator is sum over j of dweight_ij (f_j - f_i)
+           # self.dweights = 
+            self.dweights = 
         elif order == 2:
-            if weighted:
-                w = self.weights
-            else:
-                w = np.ones_like(self.weights)
             dx_matrix = d2matrix(dx)
             dx_matrix2 = np.einsum(
-                "ij,ijk,ijl->ikl", w, dx_matrix, dx_matrix, optimize="optimal"
+                "ij,ijk,ijl->ikl", weights, dx_matrix, dx_matrix, optimize="optimal"
             )  # w A^T A to get least-squares matrix
             dx_matrix2 = np.linalg.inv(dx_matrix2)
             self.d2_condition_number = np.linalg.cond(dx_matrix2)
@@ -177,15 +176,21 @@ class Meshoid(object):
         if self.verbose:
             print("Iterating for smoothing lengths...")
 
-        self.hsml = HsmlIter(self.ngbdist, error_norm=1e-13, dim=self.dim)
+        self.kernel_radius = HsmlIter(self.ngbdist, error_norm=1e-13, dim=self.dim)
         if self.verbose:
             print("Smoothing lengths found!")
 
-        q = self.ngbdist / self.hsml[:, None]
-        K = Kernel(q)
-        self.weights = K / np.sum(K, axis=1)[:, None]
-        self.density = self.des_ngb * self.m / (self.volnorm * self.hsml**self.dim)
+        self.density = (
+            self.des_ngb * self.m / (self.volnorm * self.kernel_radius**self.dim)
+        )
         self.vol = self.m / self.density
+
+    def get_kernel_weights(self):
+        if self.ngbdist is None or self.kernel_radius is None:
+            self.TreeUpdate()
+        q = self.ngbdist / self.kernel_radius[:, None]
+        K = Kernel(q)
+        return K / np.sum(K, axis=1)[:, None]
 
     def Volume(self):
         """
@@ -229,9 +234,9 @@ class Meshoid(object):
         -------
         (N,) array of particle smoothing lengths
         """
-        if self.hsml is None:
+        if self.kernel_radius is None:
             self.TreeUpdate()
-        return self.hsml
+        return self.kernel_radius
 
     def Density(self):
         """
@@ -338,10 +343,10 @@ class Meshoid(object):
         Returns:
         integral of f over the meshoid
         """
-        if self.hsml is None:
+        if self.kernel_radius is None:
             self.TreeUpdate()
         elif self.vol is None:
-            self.vol = self.volnorm * self.hsml**self.dim
+            self.vol = self.volnorm * self.kernel_radius**self.dim
         return np.einsum(
             "i,i...->...", self.vol, f[self.particle_mask], optimize="optimal"
         )
@@ -376,9 +381,7 @@ class Meshoid(object):
         -------
         Shape (N, ...) array of kernel-averaged values of f
         """
-        if self.weights is None:
-            self.TreeUpdate()
-        return np.einsum("ij,ij->i", self.weights, f[self.ngb])
+        return np.einsum("ij,ij->i", self.get_kernel_weights(), f[self.ngb])
 
     def Slice(self, f, size=None, plane="z", center=None, res=100, gridngb=32):
         """
@@ -411,17 +414,13 @@ class Meshoid(object):
         )
         x, y = np.meshgrid(x, y)
 
-        self.slicegrid = np.c_[x.flatten(), y.flatten(), np.zeros(res * res)] + center
+        slicegrid = np.c_[x.flatten(), y.flatten(), np.zeros(res * res)] + center
         if plane == "x":
-            self.slicegrid = (
-                np.c_[np.zeros(res * res), x.flatten(), y.flatten()] + center
-            )
+            slicegrid = np.c_[np.zeros(res * res), x.flatten(), y.flatten()] + center
         elif plane == "y":
-            self.slicegrid = (
-                np.c_[x.flatten(), np.zeros(res * res), y.flatten()] + center
-            )
+            slicegrid = np.c_[x.flatten(), np.zeros(res * res), y.flatten()] + center
 
-        ngbdist, ngb = self.tree.query(self.slicegrid, gridngb, workers=self.n_jobs)
+        ngbdist, ngb = self.tree.query(slicegrid, gridngb, workers=self.n_jobs)
 
         if gridngb > 1:
             hgrid = HsmlIter(ngbdist, dim=3, error_norm=1e-3)
@@ -479,7 +478,7 @@ class Meshoid(object):
             _, ngb = self.tree.query(gridcoords, workers=self.n_jobs)
             f_interp = f[ngb].reshape((res, res, res))
         elif method == "kernel":
-            h = np.clip(self.hsml, size / (res - 1), 1e100)
+            h = np.clip(self.kernel_radius, size / (res - 1), 1e100)
             f_interp = WeightedGridInterp3D(
                 f, weights, self.pos, h, center, size, res=res, box_size=self.boxsize
             )
@@ -513,7 +512,7 @@ class Meshoid(object):
         if weights is None:
             weights = np.ones(self.N)
 
-        h = np.clip(self.hsml, size / (res - 1), 1e100)
+        h = np.clip(self.kernel_radius, size / (res - 1), 1e100)
 
         f_grid = GridDensity(
             f, self.pos, h, center, size, res=res, box_size=self.boxsize
@@ -562,7 +561,7 @@ class Meshoid(object):
         return GridSurfaceDensity(
             f,
             self.pos,
-            np.clip(smooth_fac * self.hsml, 2 * size / res, 1e100),
+            np.clip(smooth_fac * self.kernel_radius, 2 * size / res, 1e100),
             center,
             size,
             res,
@@ -603,7 +602,7 @@ class Meshoid(object):
         return GridAverage(
             f,
             self.pos,
-            np.clip(smooth_fac * self.hsml, 2 * size / res, 1e100),
+            np.clip(smooth_fac * self.kernel_radius, 2 * size / res, 1e100),
             center,
             size,
             res,
@@ -640,7 +639,7 @@ class Meshoid(object):
         return GridAverage(
             f * self.vol,
             self.pos,
-            np.clip(smooth_fac * self.hsml, 2 * size / res, 1e100),
+            np.clip(smooth_fac * self.kernel_radius, 2 * size / res, 1e100),
             center,
             size,
             res,

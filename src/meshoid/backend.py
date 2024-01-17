@@ -11,7 +11,7 @@ import numpy as np
 from scipy.interpolate import RectBivariateSpline
 
 
-@njit(fastmath=True)
+@vectorize(fastmath=True)
 def nearest_image(dx_coord, boxsize):
     """Returns separation vector for nearest image, given the coordinate
     difference dx_coord and assuming coordinates run from 0 to boxsize"""
