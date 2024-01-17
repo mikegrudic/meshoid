@@ -282,7 +282,12 @@ class Meshoid:
 
         Returns
         -------
-        (Nmask, ..., dim,dim) array of partial second derivatives, evaluated at the positions of the particles in the particle mask
+        (Nmask, ..., N_derivs) array of partial second derivatives, evaluated at the positions of the particles in the particle mask
+
+        Here N_derivs is the number of unique second derivatives in the given number of dimensions: 1 for 1D, 3 for 2D,
+        6 for 3D etc.
+        For 2D, the order is [xx,yy,xy]
+        for 3D, the order is [xx,yy,zz,xy,yz,zx]
         """
         if self.ngb is None:
             self.TreeUpdate()
@@ -331,7 +336,7 @@ class Meshoid:
 
     def Integrate(self, f):
         """
-        Computes the volume integral of a quantity over the volume partition of the meshoid
+        Computes the volume integral of a quantity over the volume partition of the domain
 
         Parameters
         ----------
@@ -339,7 +344,7 @@ class Meshoid:
           Shape (Nmask, ...) function colocated on the meshoid
 
         Returns:
-        integral of f over the meshoid
+        integral of f over the domain
         """
         if self.kernel_radius is None:
             self.TreeUpdate()

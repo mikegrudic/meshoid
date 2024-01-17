@@ -141,7 +141,7 @@ def derivative_weights2(pos, ngb, kernel_radius, boxsize=None, weighted=True):
                     A[j, k] = 0.5 * dx[j, k - dim] * dx[j, k - dim]
                 else:
                     A[j, k] = (
-                        dx[j, (k + 1) % dim] * dx[j, (k + 2) % dim]
+                        dx[j, k % dim] * dx[j, (k + 1) % dim]
                     )  # this does the cross-terms, e.g. xy, xz, yz
 
         A2 = np.zeros((N_derivs, N_derivs))
