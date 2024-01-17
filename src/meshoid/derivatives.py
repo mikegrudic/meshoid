@@ -77,28 +77,42 @@ def d2weights(d2_matrix2, d2_matrix, w):
     # )  # gradient estimator is sum over j of dweight_ij (f_j - f_i)
 
 
-@njit(parallel=True, fastmath=True)
-def compute_dweights(pos, ngb, kernel_radius, boxsize=None):
+@njit(parallel=True, fastmath=True, error_model="numpy")
+def derivative_weights1(pos, ngb, kernel_radius, boxsize=None, weighted=True):
+    """Computes the N x N_ngb x dim matrix that encodes the 1st derivative
+    operator, accurate to 2nd order
+    """
     N, dim = pos.shape
     num_ngb = ngb.shape[1]
-    dx = np.zeros(num_ngb, 3)
-    weights = np.zeros(num_ngb)
+    result = np.zeros((N, num_ngb, 3))
     for i in prange(N):
-        # compute coordinate offsets,
-        x = pos[i]
-        r = 0
+        # get coordinate differences
+        dx = np.zeros((num_ngb, 3))
+        weights = np.ones(num_ngb)
         for j in range(num_ngb):
+            r = 0
             for k in range(dim):
-                dx[j, k] = pos[ngb[i, j], k] - x[k]
+                dx[j, k] = pos[ngb[i, j], k] - pos[i, k]
                 if boxsize is not None:
                     dx[j, k] = nearest_image(dx[j, k], boxsize)
                 r += dx[j, k] * dx[j, k]
-            weights[j] = Kernel(r / kernel_radius[i])
+            if weighted:
+                weights[j] = Kernel(r / kernel_radius[i])
 
-        dx_matrix = np.zeros(3, 3)
+        # compute the matrix of weights * outer product of dx * dx
+        dx2_matrix = np.zeros((3, 3))
         for j in range(num_ngb):
             for k in range(dim):
                 for l in range(dim):
-                    dx_matrix[k, l] += weights[j] * dx[j, k] * dx[j, l]
-        #         for j in range(num_ngb):
-        #             dx_matrix[k, l] += Kernel()
+                    dx2_matrix[k, l] += weights[j] * dx[j, k] * dx[j, l]
+
+        # invert outer product matrix
+        dx2_matrix_inv = np.linalg.inv(dx2_matrix)
+
+        # multiply matrix by dx to get derivative operator
+        for j in range(num_ngb):
+            for k in range(dim):
+                for l in range(dim):
+                    result[i, j, k] += weights[j] * dx2_matrix_inv[k, l] * dx[j, l]
+
+    return result

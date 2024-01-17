@@ -123,23 +123,14 @@ class Meshoid:
         if self.verbose:
             print(f"Computing weights for derivatives of order {order}...")
 
-        weights = self.get_kernel_weights()
-        if not weighted:
-            weights = np.ones_like(weights)
-
-        # this is bad, very memory hungry!
-        # dx = self.pos[self.ngb] - self.pos[self.particle_mask][:, None, :]
         if order == 1:
-            # dx_matrix = np.einsum(
-            #     "ij,ijk,ijl->ikl", weights, dx, dx, optimize="optimal"
-            # )  # matrix for least-squares fit to a linear function
-
-            # dx_matrix = np.linalg.inv(dx_matrix)  # invert the matrices
-            # self.dweights = np.einsum(
-            #     "ikl,ijl,ij->ijk", dx_matrix, dx, weights, optimize="optimal"
-            # )  # gradient estimator is sum over j of dweight_ij (f_j - f_i)
-            # self.dweights =
-            self.dweights = compute_dweights(self.pos, self.ngb)
+            self.dweights = derivative_weights1(
+                self.pos,
+                self.ngb,
+                self.kernel_radius,
+                boxsize=self.boxsize,
+                weighted=weighted,
+            )
         elif order == 2:
             dx_matrix = d2matrix(dx)
             dx_matrix2 = np.einsum(
@@ -268,7 +259,7 @@ class Meshoid:
         if self.ngb is None:
             self.TreeUpdate()
 
-        df = f[self.ngb] - f[self.particle_mask, None]
+        df = np.take(f, self.ngb, axis=0) - f[self.particle_mask, None]
 
         if self.dweights is None:
             self.ComputeDWeights()
@@ -290,7 +281,7 @@ class Meshoid:
         if self.ngb is None:
             self.TreeUpdate()
 
-        df = f[self.ngb] - f[self.particle_mask, None]
+        df = np.take(f, self.ngb, axis=0) - f[self.particle_mask, None]
 
         if self.d2weights is None:
             self.ComputeDWeights(2, weighted=weighted)
