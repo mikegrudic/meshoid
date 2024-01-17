@@ -132,20 +132,18 @@ class Meshoid:
                 weighted=weighted,
             )
         elif order == 2:
-            dx_matrix = d2matrix(dx)
-            dx_matrix2 = np.einsum(
-                "ij,ijk,ijl->ikl", weights, dx_matrix, dx_matrix, optimize="optimal"
-            )  # w A^T A to get least-squares matrix
-            dx_matrix2 = np.linalg.inv(dx_matrix2)
-            self.d2_condition_number = np.linalg.cond(dx_matrix2)
-
-            self.d2weights = d2weights(dx_matrix2, dx_matrix, w)
+            self.d2weights = derivative_weights2(
+                self.pos,
+                self.ngb,
+                self.kernel_radius,
+                boxsize=self.boxsize,
+                weighted=weighted,
+            )
 
             self.d2weights, self.dweights_3rdorder = (
                 self.d2weights[:, :, self.dim :],
                 self.d2weights[:, :, : self.dim],
             )
-            # gradient estimator is sum over j of dweight_ij (f_j - f_i)
 
     def TreeUpdate(self):
         """
@@ -242,7 +240,7 @@ class Meshoid:
             self.TreeUpdate()
         return self.density
 
-    def D(self, f):
+    def D(self, f, order=2, weighted=True):
         """
         Computes the kernel-weighted least-squares gradient estimator of the function f.
 
@@ -250,6 +248,8 @@ class Meshoid:
         ----------
         f : array_like
           shape (N,...) array of (possibly vector- or tensor-valued) function values (N is the total number of particles)
+        order : int, optional
+            desired order of the truncation error, set to 2 or 3
 
         Returns
         -------
@@ -261,9 +261,15 @@ class Meshoid:
 
         df = np.take(f, self.ngb, axis=0) - f[self.particle_mask, None]
 
-        if self.dweights is None:
-            self.ComputeDWeights()
-        return np.einsum("ijk,ij...->i...k", self.dweights, df, optimize="optimal")
+        if order == 2:
+            if self.dweights is None:
+                self.ComputeDWeights(1, weighted=weighted)
+            weights = self.dweights
+        else:
+            if self.dweights_3rdorder is None:
+                self.ComputeDWeights(2, weighted=weighted)
+            weights = self.dweights_3rdorder
+        return np.einsum("ijk,ij...->i...k", weights, df, optimize="optimal")
 
     def D2(self, f, weighted=True):
         """

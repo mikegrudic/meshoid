@@ -22,6 +22,46 @@ def nearest_image(dx_coord, boxsize):
     return dx_coord
 
 
+@njit(parallel=True, fastmath=True, error_model="numpy")
+def derivative_weights1(pos, ngb, kernel_radius, boxsize=None, weighted=True):
+    """Computes the N x N_ngb x dim matrix that encodes the 1st derivative
+    operator, accurate to 2nd order
+    """
+    N, dim = pos.shape
+    num_ngb = ngb.shape[1]
+    result = np.zeros((N, num_ngb, 3))
+    for i in prange(N):
+        # get coordinate differences
+        dx = np.zeros((num_ngb, 3))
+        weights = np.ones(num_ngb)
+        for j in range(num_ngb):
+            r = 0
+            for k in range(dim):
+                dx[j, k] = pos[ngb[i, j], k] - pos[i, k]
+                if boxsize is not None:
+                    dx[j, k] = nearest_image(dx[j, k], boxsize)
+                r += dx[j, k] * dx[j, k]
+            if weighted:
+                weights[j] = Kernel(np.sqrt(r) / kernel_radius[i])
+
+        # compute the matrix of weights * outer product of dx * dx
+        dx2_matrix = np.zeros((3, 3))
+        for j in range(num_ngb):
+            for k in range(dim):
+                for l in range(dim):
+                    dx2_matrix[k, l] += weights[j] * dx[j, k] * dx[j, l]
+        # invert outer product matrix
+        dx2_matrix_inv = np.linalg.inv(dx2_matrix)
+
+        # multiply matrix by dx to get derivative operator
+        for j in range(num_ngb):
+            for k in range(dim):
+                for l in range(dim):
+                    result[i, j, k] += weights[j] * dx2_matrix_inv[k, l] * dx[j, l]
+
+    return result
+
+
 @njit(fastmath=True, parallel=True)
 def d2matrix(dx):
     """
@@ -65,26 +105,18 @@ def d2weights(d2_matrix2, d2_matrix, w):
                     )
     return result
 
-    # dx = self.pos[self.ngb] - self.pos[self.particle_mask][:, None, :]
-    #  if order == 1:
-    # dx_matrix = np.einsum(
-    #     "ij,ijk,ijl->ikl", weights, dx, dx, optimize="optimal"
-    # )  # matrix for least-squares fit to a linear function
-
-    # dx_matrix = np.linalg.inv(dx_matrix)  # invert the matrices
-    # self.dweights = np.einsum(
-    #     "ikl,ijl,ij->ijk", dx_matrix, dx, weights, optimize="optimal"
-    # )  # gradient estimator is sum over j of dweight_ij (f_j - f_i)
-
 
 @njit(parallel=True, fastmath=True, error_model="numpy")
-def derivative_weights1(pos, ngb, kernel_radius, boxsize=None, weighted=True):
-    """Computes the N x N_ngb x dim matrix that encodes the 1st derivative
-    operator, accurate to 2nd order
+def derivative_weights2(pos, ngb, kernel_radius, boxsize=None, weighted=True):
+    """Computes the N x N_ngb x dim matrix that encodes the matrix operators for
+    2nd derivatives AND 1st derivatives, accurate to 3rd order
     """
     N, dim = pos.shape
     num_ngb = ngb.shape[1]
-    result = np.zeros((N, num_ngb, 3))
+    N_derivs = {1: 2, 2: 5, 3: 9}[
+        dim
+    ]  # in 3D: 3 first derivatives + 6 unique second derivatives
+    result = np.zeros((N, num_ngb, N_derivs))
     for i in prange(N):
         # get coordinate differences
         dx = np.zeros((num_ngb, 3))
@@ -97,22 +129,31 @@ def derivative_weights1(pos, ngb, kernel_radius, boxsize=None, weighted=True):
                     dx[j, k] = nearest_image(dx[j, k], boxsize)
                 r += dx[j, k] * dx[j, k]
             if weighted:
-                weights[j] = Kernel(r / kernel_radius[i])
+                weights[j] = Kernel(np.sqrt(r) / kernel_radius[i])
 
-        # compute the matrix of weights * outer product of dx * dx
-        dx2_matrix = np.zeros((3, 3))
+        # vandermonde matrix for fitting to N-dimensional quadratic
+        A = np.empty((num_ngb, N_derivs))
         for j in range(num_ngb):
-            for k in range(dim):
-                for l in range(dim):
-                    dx2_matrix[k, l] += weights[j] * dx[j, k] * dx[j, l]
+            for k in range(N_derivs):
+                if k < dim:
+                    A[j, k] = dx[j, k]
+                elif k < 2 * dim:
+                    A[j, k] = 0.5 * dx[j, k - dim] * dx[j, k - dim]
+                else:
+                    A[j, k] = (
+                        dx[j, (k + 1) % dim] * dx[j, (k + 2) % dim]
+                    )  # this does the cross-terms, e.g. xy, xz, yz
 
-        # invert outer product matrix
-        dx2_matrix_inv = np.linalg.inv(dx2_matrix)
-
-        # multiply matrix by dx to get derivative operator
+        A2 = np.zeros((N_derivs, N_derivs))
         for j in range(num_ngb):
-            for k in range(dim):
-                for l in range(dim):
-                    result[i, j, k] += weights[j] * dx2_matrix_inv[k, l] * dx[j, l]
+            for k in range(N_derivs):
+                for l in range(N_derivs):
+                    A2[k, l] += weights[j] * A[j, k] * A[j, l]
+        A2_inv = np.linalg.inv(A2)
+
+        for j in range(num_ngb):
+            for k in range(N_derivs):
+                for l in range(N_derivs):
+                    result[i, j, k] += weights[j] * A2_inv[k, l] * A[j, l]
 
     return result
