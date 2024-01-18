@@ -150,3 +150,12 @@ plt.show()
 
 ![png](output3.png)
 
+# Community
+
+This code is actively developed and maintained by Mike Grudic.
+
+If you would like help using meshoid, please ask a question on our [Discussions](https://github.com/mikegrudic/meshoid/discussions) page.
+
+If you have found a bug or an issue using meshoid, please open an [issue](https://github.com/mikegrudic/meshoid/issues).
+
+
