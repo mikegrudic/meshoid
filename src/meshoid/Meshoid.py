@@ -123,26 +123,21 @@ class Meshoid:
         if self.verbose:
             print(f"Computing weights for derivatives of order {order}...")
 
-        if order == 1:
-            self.dweights = derivative_weights1(
-                self.pos,
-                self.ngb,
-                self.kernel_radius,
-                boxsize=self.boxsize,
-                weighted=weighted,
-            )
-        elif order == 2:
-            self.d2weights = derivative_weights2(
-                self.pos,
-                self.ngb,
-                self.kernel_radius,
-                boxsize=self.boxsize,
-                weighted=weighted,
-            )
+        weights = gradient_weights(
+            self.pos,
+            self.ngb,
+            self.kernel_radius,
+            boxsize=self.boxsize,
+            weighted=weighted,
+            order=order,
+        )
 
+        if order == 1:
+            self.dweights = weights
+        elif order == 2:
             self.d2weights, self.dweights_3rdorder = (
-                self.d2weights[:, :, self.dim :],
-                self.d2weights[:, :, : self.dim],
+                weights[:, self.dim :, :],
+                weights[:, : self.dim, :],
             )
 
     def TreeUpdate(self):
@@ -269,7 +264,7 @@ class Meshoid:
             if self.dweights_3rdorder is None:
                 self.ComputeDWeights(2, weighted=weighted)
             weights = self.dweights_3rdorder
-        return np.einsum("ijk,ij...->i...k", weights, df, optimize="optimal")
+        return np.einsum("ikj,ij...->i...k", weights, df, optimize="optimal")
 
     def D2(self, f, weighted=True):
         """
@@ -296,7 +291,7 @@ class Meshoid:
 
         if self.d2weights is None:
             self.ComputeDWeights(2, weighted=weighted)
-        return np.einsum("ijk,ij...->i...k", self.d2weights, df, optimize="optimal")
+        return np.einsum("ikj,ij...->i...k", self.d2weights, df, optimize="optimal")
 
     def Curl(self, v):
         """
