@@ -108,6 +108,9 @@ class Meshoid:
             self.vol = self.volnorm * self.kernel_radius**self.dim / self.des_ngb
             self.density = self.m / self.vol
 
+    def reset_dweights(self):
+        self.dweights = self.d2weights = self.dweights_3rdorder = None
+
     def ComputeDWeights(self, order=1, weighted=True):
         """
         Computes the weights required to compute least-squares gradient estimators on data colocated on the meshoid
@@ -170,9 +173,11 @@ class Meshoid:
             print("Smoothing lengths found!")
 
         self.density = (
-            self.des_ngb * self.m / (self.volnorm * self.kernel_radius**self.dim)
+            self.des_ngb
+            * self.m[self.particle_mask]
+            / (self.volnorm * self.kernel_radius**self.dim)
         )
-        self.vol = self.m / self.density
+        self.vol = self.m[self.particle_mask] / self.density
 
     def get_kernel_weights(self):
         if self.ngbdist is None or self.kernel_radius is None:
@@ -239,7 +244,7 @@ class Meshoid:
             self.TreeUpdate()
         return self.density
 
-    def D(self, f, order=2, weighted=True):
+    def D(self, f, order=1, weighted=True):
         """
         Computes the kernel-weighted least-squares gradient estimator of the function f.
 
@@ -249,7 +254,7 @@ class Meshoid:
             shape (N,...) array of (possibly vector- or tensor-valued) function
             values (N is the total number of particles)
         order : int, optional
-            desired order of the truncation error, set to 2 or 3
+            desired order of precision, either 1 or 2
 
         Returns
         -------
@@ -262,7 +267,7 @@ class Meshoid:
 
         df = np.take(f, self.ngb, axis=0) - f[self.particle_mask, None]
 
-        if order == 2:
+        if order == 1:
             if self.dweights is None:
                 self.ComputeDWeights(1, weighted=weighted)
             weights = self.dweights
@@ -414,52 +419,70 @@ class Meshoid:
         if self.tree is None:
             self.BuildTree()
         # get nearest neighbor of each target point
-        target_neighbors = self.tree.query(target_points, 1)[1]
+        target_neighbors = self.tree.query(target_points, workers=self.n_jobs)[1]
+        unique_neighbors, neighbor_idx = np.unique(
+            target_neighbors, return_inverse=True
+        )
+
         # get value of f at each nearest neighbor
-        f = np.take(f, target_neighbors, axis=0)
+        f_target = np.take(f, target_neighbors, axis=0)
         if order == 0:  # 0'th order reconstruction
-            return f
+            return f_target
 
         # 1st-order reconstruction
-        dx = target_points - np.take(self.pos, target_neighbors)
-        self.particle_mask = target_neighbors
-        self.TreeUpdate()  # update neighbor lists to just the target neighbors
-        gradf_neighbors = self.D(f)
-        f += np.einsum("ij,ij...->i...", dx, gradf_neighbors)
+        dx = target_points - self.pos.take(target_neighbors, axis=0)
+        if self.boxsize is not None:
+            dx = nearest_image_v(dx, self.boxsize)
+        if not np.array_equal(self.particle_mask, unique_neighbors):
+            self.particle_mask = unique_neighbors
+            self.TreeUpdate()  # update neighbor lists to just the target neighbors
+            self.reset_dweights()  # reset derivative weights if already computed
+        gradf_neighbors = self.D(f, order=order).take(neighbor_idx, axis=0)
+        f_target += np.einsum("ij,ij...->i...", dx, gradf_neighbors)
         if order == 1:
-            return f
+            return f_target
 
         # 2nd order reconstruction
-        d2f_neighbors = self.D2(f)
-        f += 0.5 * np.einsum(
-            "ij,ij...->i...", dx * dx, d2f_neighbors[:, :3]
+        d2f_neighbors = self.D2(f).take(neighbor_idx, axis=0)
+        f_target += 0.5 * np.einsum(
+            "ij,ij...->i...", dx * dx, d2f_neighbors[..., :3]
         )  # pure 2nd derivative terms
         for dim in range(self.dim):
-            f += np.einsum(
-                "ij,ij...->i...",
-                dx[:, self.dim + dim] * dx[:, self.dim + (dim + 1) % (self.dim)],
-                d2f_neighbors[:, :3],
+            f_target += np.einsum(
+                "i,i...->i...",
+                dx[:, dim] * dx[:, (dim + 1) % (self.dim)],
+                d2f_neighbors[..., self.dim + dim],
             )  # mixed terms
-        return f
+        return f_target
 
-    def Slice(self, f, size=None, plane="z", center=None, res=100, gridngb=32):
+    def Slice(
+        self, f, size=None, plane="z", center=None, res: int = 128, order: int = 1
+    ):
         """
-        Gives the kernel-weighted value of a function f deposited on a Cartesian grid slicing through the meshoid.
+        Gives the value of a function f deposited on a 2D Cartesian grid slicing
+        through the 3D domain.
 
         Parameters
         ----------
-        f :
-          the quantity you want the surface density of (default: particle density)
-        size :
-          the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
-        plane :
-          the direction of the normal of the slicing plane, one of x, y, or z (default: 'z'')
-        center :
-          (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
-        res :
-          the resolution of the grid of sightlines (default: 128)
-        gridngb :
-          how many nearest neighbors the gridpoints should search for to construct their neighbor kernel(default: 32)
+        f : array_like
+            Quantity to be reconstructed on the slice grid
+        size : optional
+            Side length of the grid (default: None, will use the meshoid's predefined side length')
+        plane : optional
+            The direction of the normal of the slicing plane, one of x, y, or z,
+            OR can give an iterable containing 2 orthogonal basis vectors that
+            specify the plane (default: 'z')
+        center : array_like, optional
+            (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
+        res : int, optional
+            the resolution of the grid (default: 128)
+        order : int, optional
+            Order of the reconstruction on the slice: 0, 1, or 2 (default: 1)
+
+        Returns
+        -------
+        slice : array_like
+            Shape (res,res,...) grid of values reconstructed on the slice
         """
         if center is None:
             center = self.center
@@ -471,7 +494,7 @@ class Meshoid:
         x, y = np.linspace(-size / 2, size / 2, res), np.linspace(
             -size / 2, size / 2, res
         )
-        x, y = np.meshgrid(x, y)
+        x, y = np.meshgrid(x, y, indexing="ij")
 
         slicegrid = np.c_[x.flatten(), y.flatten(), np.zeros(res * res)] + center
         if plane == "x":
@@ -479,44 +502,40 @@ class Meshoid:
         elif plane == "y":
             slicegrid = np.c_[x.flatten(), np.zeros(res * res), y.flatten()] + center
 
-        ngbdist, ngb = self.tree.query(slicegrid, gridngb, workers=self.n_jobs)
-
-        if gridngb > 1:
-            hgrid = HsmlIter(ngbdist, dim=3, error_norm=1e-3)
-            self.sliceweights = Kernel(ngbdist / hgrid[:, None])
-            self.sliceweights /= np.sum(self.sliceweights, axis=1)[:, None]
-        else:
-            self.sliceweights = np.ones(ngbdist.shape)
-
+        f_grid = self.Reconstruct(f, slicegrid, order)
+        shape = (res, res)
         if len(f.shape) > 1:
-            return np.einsum("ij,ij...->i...", self.sliceweights, f[ngb]).reshape(
-                (res, res, f.shape[-1])
-            )
-        else:
-            return np.einsum("ij,ij...->i...", self.sliceweights, f[ngb]).reshape(
-                (res, res)
-            )
+            shape += f.shape[1:]
+        return f_grid.reshape(shape)
 
     def InterpToGrid(
-        self, f, weights=None, size=None, center=None, res=128, method="kernel"
+        self,
+        f,
+        size=None,
+        center=None,
+        res: int = 128,
+        order: int = 1,
+        return_grid: bool = False,
     ):
         """
-        Interpolates the quantity f defined on the meshoid to the cell centers of a 3D Cartesian grid
+        Interpolates the quantity f defined on the meshoid to the cell centers
+        of a 3D Cartesian grid
 
         Parameters
         ----------
         f : array_like
             Shape (N,) function colocated at the particle coordinates
-        weights : array_like, optional
-            Shape (N,) array of weights for kernel-weighted interpolation
         size : float, optional
-            Side length of the grid - defaults to the self.L value: either 2 times the 90th percentile radius from the center, or the specified boxsize
+            Side length of the grid - defaults to the self.L value: either 2
+            times the 90th percentile radius from the center, or the specified
+            boxsize
         center: array_like, optional
-            Center of the grid - defaults to self.center value, either the box center if boxsize given, or average particle position
+            Center of the grid - defaults to self.center value, either the box
+            center if boxsize given, or average particle position
         res: integer, optional
             Resolution of the grid - default 128
-        method: string, optional
-            Either kernel or nearest - kernel will do kernel-weighted interpolation, nearest will do simple nearest-neighbors
+        order : int, optional
+            Order of the reconstruction on the slice: 0, 1, or 2 (default: 1)
 
         Returns
         -------
@@ -526,26 +545,26 @@ class Meshoid:
             center = self.center
         if size is None:
             size = self.L
-        if weights is None:
-            weights = np.ones(self.N)
 
+        # generate the grid cells' *center points* whoses edges line up with
+        # desired domain bounds
         x = np.linspace(-size / 2, size / 2, res + 1)
         x = (x[1:] + x[:-1]) / 2
         X, Y, Z = np.meshgrid(x, x, x, indexing="ij")
         gridcoords = np.c_[X.flatten(), Y.flatten(), Z.flatten()] + center
-        if method == "nearest":
-            _, ngb = self.tree.query(gridcoords, workers=self.n_jobs)
-            f_interp = f[ngb].reshape((res, res, res))
-        elif method == "kernel":
-            h = np.clip(self.kernel_radius, size / (res - 1), 1e100)
-            f_interp = WeightedGridInterp3D(
-                f, weights, self.pos, h, center, size, res=res, box_size=self.boxsize
-            )
-        return f_interp
+        f_grid = self.Reconstruct(f, gridcoords, order)
+        shape = (res, res, res)
+        if len(f.shape) > 1:
+            shape += f.shape[1:]
+        if return_grid:
+            return X, Y, Z, f_grid.reshape(shape)
+        else:
+            return f_grid.reshape(shape)
 
     def DepositToGrid(self, f, weights=None, size=None, center=None, res=128):
         """
-        Deposits a conserved quantity (e.g. mass, momentum, energy) to a 3D grid and returns the density of that quantity on that grid
+        Deposits a conserved quantity (e.g. mass, momentum, energy) to a 3D
+        grid and returns the density of that quantity on that grid
 
         Parameters
         ----------
@@ -554,9 +573,12 @@ class Meshoid:
         weights : array_like, optional
             Shape (N,) array of weights for kernel-weighted interpolation
         size : float, optional
-            Side length of the grid - defaults to the self.L value: either 2 times the 90th percentile radius from the center, or the specified boxsize
+            Side length of the grid - defaults to the self.L value: either 2
+            times the 90th percentile radius from the center, or the specified
+            boxsize
         center: array_like, optional
-            Center of the grid - defaults to self.center value, either the box center if boxsize given, or average particle position
+            Center of the grid - defaults to self.center value, either the box
+            center if boxsize given, or average particle position
         res: integer, optional
             Resolution of the grid - default 128
 
@@ -583,7 +605,7 @@ class Meshoid:
         self,
         f=None,
         size=None,
-        plane="z",
+        # plane="z",
         center=None,
         res=128,
         smooth_fac=1.0,
@@ -595,17 +617,17 @@ class Meshoid:
         Parameters
         ----------
         f :
-          the quantity you want the surface density of (default: particle mass)
+            the quantity you want the surface density of (default: particle mass)
         size :
-          the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
+            the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
         plane :
-          the direction you want to project along, of x, y, or z (default: 'z')
+            the direction you want to project along, of x, y, or z (default: 'z')
         center :
-          (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
+            (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
         res :
-          the resolution of the grid of sightlines (default: 128)
+            the resolution of the grid of sightlines (default: 128)
         smooth_fac :
-          smoothing lengths are increased by this factor (default: 1.)
+            smoothing lengths are increased by this factor (default: 1.)
 
         Returns
         -------
@@ -630,7 +652,7 @@ class Meshoid:
         )
 
     def ProjectedAverage(
-        self, f, size=None, plane="z", center=None, res=128, smooth_fac=1.0
+        self, f, size=None, center=None, res=128, smooth_fac=1.0  # plane="z",
     ):
         """
         Computes the average value of a quantity f along a Cartesian grid of sightlines from +/- infinity.
@@ -638,17 +660,17 @@ class Meshoid:
         Parameters
         ----------
         f :
-          (N,) array containing the quantity you want the average of
+            (N,) array containing the quantity you want the average of
         size :
-          the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
+            the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
         plane :
-          the direction you want to project along, of x, y, or z (default: 'z')
+            the direction you want to project along, of x, y, or z (default: 'z')
         center :
-          (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
+            (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
         res :
-          the resolution of the grid of sightlines (default: 128)
+            the resolution of the grid of sightlines (default: 128)
         smooth_fac :
-          smoothing lengths are increased by this factor (default: 1.)
+            smoothing lengths are increased by this factor (default: 1.)
 
         Returns
         -------
@@ -668,24 +690,29 @@ class Meshoid:
             self.boxsize,
         )
 
-    def Projection(self, f, size=None, plane="z", center=None, res=128, smooth_fac=1.0):
+    def Projection(
+        self, f, size=None, center=None, res=128, smooth_fac=1.0  # plane="z",
+    ):
         """
-        Computes the integral of quantity f along a Cartesian grid of sightlines from +/- infinity. e.g. plugging in 3D density for f will return surface density.
+        Computes the integral of quantity f along a Cartesian grid of sightlines
+        from +/- infinity. e.g. plugging in 3D density for f will return
+        surface density.
 
         Parameters
         ----------
         f :
-          (N,) array containing the quantity you want the projected integral of
+            (N,) array containing the quantity you want the projected integral of
         size :
-          the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
+            the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
         plane :
-          the direction you want to project along, of x, y, or z (default: 'z')
+            the direction you want to project along, of x, y, or z (default: 'z')
         center :
-          (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
+            (2,) or (3,) array containing the coordaintes of the center of the
+            grid (default: None, will use the meshoid's predefined center)
         res :
-          the resolution of the grid of sightlines (default: 128)
+            the resolution of the grid of sightlines (default: 128)
         smooth_fac :
-          smoothing lengths are increased by this factor (default: 1.)
+            smoothing lengths are increased by this factor (default: 1.)
 
         Returns
         -------
