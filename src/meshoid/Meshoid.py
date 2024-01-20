@@ -62,7 +62,7 @@ class Meshoid:
         if particle_mask is None:
             self.particle_mask = np.arange(self.N)
         else:
-            if particle_mask.dtype == np.dtype("bool"):  # boolean mask
+            if np.array(particle_mask).dtype == np.dtype("bool"):  # boolean mask
                 self.particle_mask = np.arange(len(particle_mask))[particle_mask]
             else:
                 self.particle_mask = particle_mask
@@ -91,9 +91,8 @@ class Meshoid:
             self.L = self.boxsize
 
         if m is None:
-            m = np.repeat(
-                1.0, self.N
-            )  # assume unit masses so that density corresponds to number-density
+            # assume unit masses so that density is just particle number density
+            m = np.repeat(1.0, self.N)
         self.m = m[self.particle_mask]
 
         self.ngb = None
@@ -127,6 +126,7 @@ class Meshoid:
             self.pos,
             self.ngb,
             self.kernel_radius,
+            self.particle_mask,
             boxsize=self.boxsize,
             weighted=weighted,
             order=order,
@@ -140,14 +140,18 @@ class Meshoid:
                 weights[:, : self.dim, :],
             )
 
+    def BuildTree(self):
+        if self.verbose:
+            print("Building tree...")
+        self.tree = cKDTree(self.pos, boxsize=self.boxsize)
+
     def TreeUpdate(self):
         """
         Computes or updates the neighbor lists, smoothing lengths, and densities of particles.
         """
 
-        if self.verbose:
-            print("Building tree...")
-        self.tree = cKDTree(self.pos, boxsize=self.boxsize)
+        if self.tree is None:
+            self.BuildTree()
 
         if self.verbose:
             print("Finding neighbors...")
@@ -242,13 +246,15 @@ class Meshoid:
         Parameters
         ----------
         f : array_like
-          shape (N,...) array of (possibly vector- or tensor-valued) function values (N is the total number of particles)
+            shape (N,...) array of (possibly vector- or tensor-valued) function
+            values (N is the total number of particles)
         order : int, optional
             desired order of the truncation error, set to 2 or 3
 
         Returns
         -------
-        (Nmask, ..., dim) array of partial derivatives, evaluated at the positions of the particles in the particle mask
+        (Nmask, ..., dim) array of partial derivatives, evaluated at the
+        positions of the particles in the particle mask
         """
 
         if self.ngb is None:
@@ -380,6 +386,61 @@ class Meshoid:
         Shape (N, ...) array of kernel-averaged values of f
         """
         return np.einsum("ij,ij->i", self.get_kernel_weights(), f[self.ngb])
+
+    def Reconstruct(self, f: np.ndarray, target_points: np.ndarray, order: int = 1):
+        """
+        Gives the value of a function f colocated on the meshoid points
+        reconstructed at an arbitrary set of points
+
+        Parameters
+        ----------
+        f : array_like
+            The quantity defined on the set of meshoid points that we wish to
+            reconstruct at the target points, first dimension should be N_mask
+        target_points : array_like
+            The shape (N_target,dim) array of points where you would like to
+            reconstruct the function
+        order: int, optional
+            The order of the reconstruction (default 1):
+            0 - nearest-neighbor value
+            1 - linear reconstruction from the nearest neighbor
+            2 - quadratic reconstruction from the nearest neighbor
+
+        Returns
+        -------
+        f_target : ndarray
+            Values of f reconstructed at the target points
+        """
+        if self.tree is None:
+            self.BuildTree()
+        # get nearest neighbor of each target point
+        target_neighbors = self.tree.query(target_points, 1)[1]
+        # get value of f at each nearest neighbor
+        f = np.take(f, target_neighbors, axis=0)
+        if order == 0:  # 0'th order reconstruction
+            return f
+
+        # 1st-order reconstruction
+        dx = target_points - np.take(self.pos, target_neighbors)
+        self.particle_mask = target_neighbors
+        self.TreeUpdate()  # update neighbor lists to just the target neighbors
+        gradf_neighbors = self.D(f)
+        f += np.einsum("ij,ij...->i...", dx, gradf_neighbors)
+        if order == 1:
+            return f
+
+        # 2nd order reconstruction
+        d2f_neighbors = self.D2(f)
+        f += 0.5 * np.einsum(
+            "ij,ij...->i...", dx * dx, d2f_neighbors[:, :3]
+        )  # pure 2nd derivative terms
+        for dim in range(self.dim):
+            f += np.einsum(
+                "ij,ij...->i...",
+                dx[:, self.dim + dim] * dx[:, self.dim + (dim + 1) % (self.dim)],
+                d2f_neighbors[:, :3],
+            )  # mixed terms
+        return f
 
     def Slice(self, f, size=None, plane="z", center=None, res=100, gridngb=32):
         """

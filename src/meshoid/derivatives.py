@@ -18,27 +18,27 @@ def kernel_dx_and_weights(
     i: int,
     pos: np.ndarray,
     ngb: np.ndarray,
-    kernel_radius: np.ndarray,
+    kernel_radius: float,
     boxsize=None,
     weighted: bool = True,
 ):
     """Computes coordinate differences and weights for the neighbors in the
     kernel of particle i.
     """
-    num_ngb = ngb.shape[1]
+    num_ngb = ngb.shape[0]
     dim = pos.shape[1]
     dx = np.zeros((num_ngb, dim))
     weights = np.ones(num_ngb)
     for j in range(num_ngb):
         r = 0
-        n = ngb[i, j]
+        n = ngb[j]
         for k in range(dim):
             dx[j, k] = pos[n, k] - pos[i, k]
             if boxsize is not None:
                 dx[j, k] = nearest_image(dx[j, k], boxsize)
             r += dx[j, k] * dx[j, k]
         if weighted:
-            weights[j] = Kernel(np.sqrt(r) / kernel_radius[i])
+            weights[j] = Kernel(np.sqrt(r) / kernel_radius)
     return dx, weights
 
 
@@ -105,17 +105,22 @@ def get_num_derivs(dim: int, order: int) -> int:
 
 
 @njit(parallel=True, fastmath=True, error_model="numpy")
-def gradient_weights(pos, ngb, kernel_radius, boxsize=None, weighted=True, order=1):
+def gradient_weights(
+    pos, ngb, kernel_radius, indices, boxsize=None, weighted=True, order=1
+):
     """Computes the N_particles (dim x N_ngb) matrices that encode the least-
     squares gradient operators
     """
-    N, dim = pos.shape
+    dim = pos.shape[1]
+    N = indices.shape[0]
     num_ngb = ngb.shape[1]
     num_derivs = get_num_derivs(dim, order)
     result = np.zeros((N, num_derivs, num_ngb))
+
     for i in prange(N):
+        index = indices[i]
         dx, weights = kernel_dx_and_weights(
-            i, pos, ngb, kernel_radius, boxsize, weighted
+            index, pos, ngb[i], kernel_radius[i], boxsize, weighted
         )
         lhs_matrix, rhs_matrix = polyfit_leastsq_matrices(dx, weights, order)
         lhs_matrix_inv = np.linalg.inv(lhs_matrix)
