@@ -6,7 +6,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="meshoid",
-    version="1.44",
+    version="1.45",
     description="Package for analysis of meshless simulation data",
     #      long_description=long_description,
     url="http://github.com/mikegrudic/meshoid",
