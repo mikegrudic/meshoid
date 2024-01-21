@@ -456,7 +456,14 @@ class Meshoid:
         return f_target
 
     def Slice(
-        self, f, size=None, plane="z", center=None, res: int = 128, order: int = 1
+        self,
+        f,
+        size=None,
+        plane="z",
+        center=None,
+        res: int = 128,
+        order: int = 1,
+        return_grid: bool = False,
     ):
         """
         Gives the value of a function f deposited on a 2D Cartesian grid slicing
@@ -478,6 +485,8 @@ class Meshoid:
             the resolution of the grid (default: 128)
         order : int, optional
             Order of the reconstruction on the slice: 0, 1, or 2 (default: 1)
+        return_grid : bool, optional
+            Also return the grid coordinates corresponding to the slice
 
         Returns
         -------
@@ -506,6 +515,8 @@ class Meshoid:
         shape = (res, res)
         if len(f.shape) > 1:
             shape += f.shape[1:]
+        if return_grid:
+            return x, y, f_grid.reshape(shape)
         return f_grid.reshape(shape)
 
     def InterpToGrid(
