@@ -438,7 +438,7 @@ class Meshoid:
             self.TreeUpdate()  # update neighbor lists to just the target neighbors
             self.reset_dweights()  # reset derivative weights if already computed
         gradf_neighbors = self.D(f, order=order).take(neighbor_idx, axis=0)
-        f_target += np.einsum("ij,ij...->i...", dx, gradf_neighbors)
+        f_target += np.einsum("ij,i...j->i...", dx, gradf_neighbors)
         if order == 1:
             return f_target
 
