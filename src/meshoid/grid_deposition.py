@@ -9,6 +9,82 @@ from numba import (
 )
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
+from .derivatives import nearest_image
+
+
+@njit(fastmath=True, error_model="numpy")
+def grid_index_to_coordinate(
+    index: int, grid_length: float, grid_center: float, N_grid: int, box_size=None
+):
+    """Convert the index of a grid to the *cell-centered* coordinate of that
+    grid cell, in a given dimension
+
+    Parameters
+    ----------
+    index: int
+        Grid index, running from 0 to N_grid-1
+    grid_length: float
+        Side-length of the grid
+    grid_center: float
+        Coordinate of the grid center
+    N_grid: int
+        Number of cells per grid dimension
+    box_size:
+        Size of the periodic domain - if not None, we assume the domain coordinates
+        run from [0,box_size)
+
+    Returns
+    -------
+    x: float
+        Coordinate of the center of the grid cell
+    """
+
+    x = grid_center - 0.5 * grid_length + grid_length / N_grid * (0.5 + index)
+    if box_size is not None:
+        return x % box_size
+    return x
+
+
+@njit(fastmath=True, error_model="numpy")
+def grid_dx_from_coordinate(
+    x: float,
+    index: int,
+    grid_length: float,
+    grid_center: float,
+    N_grid: int,
+    box_size=None,
+):
+    """
+    Returns the *nearest image* coordinate difference from a given coordinate x
+    to the cell-centered grid-point residing at index
+
+    Parameters
+    ----------
+    x: float
+        The original coordinate, from which to compute coordinate difference
+    index: int
+        Grid index, running from 0 to N_grid-1
+    grid_length: float
+        Side-length of the grid
+    N_grid: int
+        Number of cells per grid dimension
+    grid_center: float
+        Coordinate of the grid center
+    box_size:
+        Size of the periodic domain - if not None, we assume the domain coordinates
+        run from [0,box_size)
+
+    Returns
+    -------
+    dx: float
+        The nearest-image Cartesian coordinate difference from x to grid cell i
+    """
+
+    x_grid = grid_index_to_coordinate(index, grid_length, grid_center, N_grid, box_size)
+    dx = x_grid - x
+    if box_size is not None:
+        return nearest_image(dx, box_size)
+    return dx
 
 
 def GridSurfaceDensityMultigrid(
