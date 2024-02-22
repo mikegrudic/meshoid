@@ -14,7 +14,7 @@ from .derivatives import nearest_image
 
 @njit(fastmath=True, error_model="numpy")
 def grid_index_to_coordinate(
-    index: int, grid_length: float, grid_center: float, N_grid: int, box_size=None
+    index: int, grid_length: float, grid_center: float, grid_res: int, box_size=None
 ):
     """Convert the index of a grid to the *cell-centered* coordinate of that
     grid cell, in a given dimension
@@ -22,12 +22,12 @@ def grid_index_to_coordinate(
     Parameters
     ----------
     index: int
-        Grid index, running from 0 to N_grid-1
+        Grid index, running from 0 to grid_res-1
     grid_length: float
         Side-length of the grid
     grid_center: float
         Coordinate of the grid center
-    N_grid: int
+    grid_res: int
         Number of cells per grid dimension
     box_size:
         Size of the periodic domain - if not None, we assume the domain coordinates
@@ -39,10 +39,103 @@ def grid_index_to_coordinate(
         Coordinate of the center of the grid cell
     """
 
-    x = grid_center - 0.5 * grid_length + grid_length / N_grid * (0.5 + index)
+    x = grid_center - 0.5 * grid_length + grid_length / grid_res * (0.5 + index)
     if box_size is not None:
         return x % box_size
     return x
+
+
+# candidate for vectorization over dimensions
+@njit(fastmath=True, error_model="numpy")
+def coordinate_to_grid_index(
+    x: float,
+    grid_length: float,
+    grid_center: float,
+    grid_res: int,  # , box_size=None
+):
+    """Convert coordinate to the integer coordinate on a grid, where 0 is
+    corresponds to the position of the first grid cell center and grid_res-1
+    corresponds to the last. Assumes grid size is less than box_size (so the
+    mapping is bijective with no repeat images.
+
+    Parameters
+    ----------
+    x: float
+        Cartesian coordinate value
+    grid_length: float
+        Side-length of the grid
+    grid_center: float
+        Coordinate of the grid center
+    grid_res: int
+        Number of cells per grid dimension
+
+    Returns
+    -------
+    grid_coord: float
+        Grid coordinate - still float, must be rounded to int as appropriate.
+    """
+    dx = x - grid_center
+    grid_spacing = grid_length / grid_res
+    return dx / grid_spacing + 0.5 * (grid_res - 1)
+
+
+@njit(fastmath=True, error_model="numpy")
+def grid_index_bounds(
+    x: np.ndarray,
+    r: float,
+    grid_length: float,
+    grid_center: float,
+    grid_res: int,
+    box_size=None,
+):
+    """
+    Returns the lower-left corner on the grid of the square of grid points that
+    a particle will overlap, and the width of the square in grid points
+
+    Parameters
+    ----------
+    x: np.ndarray
+        Shape (N_dimensions,) array containing coordinates
+    r: float
+        Radius of the particle
+    grid_length: float
+        Side-length of the grid
+    grid_center: float
+        Coordinate of the grid center
+    grid_res: int
+        Number of cells per grid dimension
+    box_size: optional
+        Size of the periodic domain - if not None, we assume the domain
+        coordinates run from [0,box_size)
+    """
+    N_dim = x.shape[0]
+    grid_dx = grid_length / (grid_res - 1)
+    width = int(2 * r / grid_dx + 1)
+    corner = np.empty(2, dtype=np.int64)
+    for dim in range(N_dim):
+        corner[dim] = int(
+            coordinate_to_grid_index(
+                x[dim] - r, grid_length, grid_center[dim], grid_res
+            )
+            + 1
+        )
+
+    return corner, width
+
+
+@njit
+def wrapped_index(gx, size, res, box_size):
+    if box_size is None:
+        return gx
+    return gx % (res * box_size / size)
+
+
+@njit
+def coordinate_lies_on_grid(x, size, center, res):
+    if x > center - 0.5 * size:
+        if x <= center + 0.5 * size:
+            return True
+    return False
 
 
 @njit(fastmath=True, error_model="numpy")
@@ -51,22 +144,23 @@ def grid_dx_from_coordinate(
     index: int,
     grid_length: float,
     grid_center: float,
-    N_grid: int,
+    grid_res: int,
     box_size=None,
 ):
     """
     Returns the *nearest image* coordinate difference from a given coordinate x
-    to the cell-centered grid-point residing at index
+    to the cell-centered grid-point residing at index, ASSUMING grid_length <=
+    box_size (no repeat images, so mapping from coordaintes to grid is unique)
 
     Parameters
     ----------
     x: float
         The original coordinate, from which to compute coordinate difference
     index: int
-        Grid index, running from 0 to N_grid-1
+        Grid index, running from 0 to grid_res-1
     grid_length: float
         Side-length of the grid
-    N_grid: int
+    grid_res: int
         Number of cells per grid dimension
     grid_center: float
         Coordinate of the grid center
@@ -80,7 +174,11 @@ def grid_dx_from_coordinate(
         The nearest-image Cartesian coordinate difference from x to grid cell i
     """
 
-    x_grid = grid_index_to_coordinate(index, grid_length, grid_center, N_grid, box_size)
+    x_grid = grid_index_to_coordinate(
+        index, grid_length, grid_center, grid_res, box_size
+    )
+    if box_size is not None:
+        x_grid = x_grid % box_size
     dx = x_grid - x
     if box_size is not None:
         return nearest_image(dx, box_size)
@@ -88,7 +186,7 @@ def grid_dx_from_coordinate(
 
 
 def GridSurfaceDensityMultigrid(
-    f, x, h, center, size, res=128, box_size=-1, N_grid_kernel=8, parallel=False
+    f, x, h, center, size, res=128, box_size=-1, grid_res_kernel=8, parallel=False
 ):
     if not ((res != 0) and (res & (res - 1) == 0)):
         raise ("Multigrid resolution must be a power of 2")
@@ -101,7 +199,9 @@ def GridSurfaceDensityMultigrid(
         grid = UpsampleGrid(grid)
         Ni = grid.shape[0]
         # bin particles by smoothing length to decide which resolution level they get deposited at
-        idx = (h / N_grid_kernel < res_bins[i]) & (h / N_grid_kernel >= res_bins[i + 1])
+        idx = (h / grid_res_kernel < res_bins[i]) & (
+            h / grid_res_kernel >= res_bins[i + 1]
+        )
         if np.any(idx):
             grid += GridSurfaceDensity(
                 f[idx],
@@ -184,55 +284,85 @@ def GridSurfaceDensity(
         else:
             return GridSurfaceDensity_core(f, x, h, center, size, res, box_size)
 
+def overlapping_grid_coordinates(x,h,center,length,res,box_size):
+    num_points = 2*h * (res - 1) / length
+    x0 = 
 
-@njit(fastmath=True)
-def GridSurfaceDensity_core(f, x, h, center, size, res=100, box_size=-1):
+# @njit(fastmath=True)
+def GridSurfaceDensity_core(f, x, h, center, size, res=100, box_size=None):
     """
-    Computes the surface density of conserved quantity f colocated at positions x with smoothing lengths h. E.g. plugging in particle masses would return mass surface density. The result is on a Cartesian grid of sightlines, the result being the density of quantity f integrated along those sightlines.
+    Computes the surface density of conserved quantity f colocated at positions
+    x with smoothing lengths h. E.g. plugging in particle masses would return
+    mass surface density. The result is on a Cartesian grid of sightlines, the
+    result being the density of quantity f integrated along those sightlines.
 
-    Arguments:
+    Parameters
+    ----------
     f - (N,) array of the conserved quantity that you want the surface density of (e.g. particle masses)
     x - (N,3) array of particle positions
     h - (N,) array of particle smoothing lengths
     center - (2,) array containing the coorindates of the center of the map
     size - side-length of the map
     res - resolution of the grid
-    """
-    dx = size / (res - 1)
 
-    x2d = x[:, :2] - center[:2] + size / 2
+    Returns
+    -------
+    grid - np.ndarray
+        Shape (res,res) grid of estimated surface density of the quantity f
+    """
+    grid_dx = size / (res - 1)
+    #    x2d = x[:, :2] - center[:2] + size / 2
 
     grid = np.zeros((res, res))
 
     N = len(x)
     for i in range(N):
-        xs = x2d[i]
+        xs = x[i]
         hs = h[i]
+        hs2 = hs * hs
         hinv = 1 / hs
         mh2 = f[i] * hinv * hinv
 
-        gxmin = max(int((xs[0] - hs) / dx + 1), 0)
-        gxmax = min(int((xs[0] + hs) / dx), res - 1)
-        gymin = max(int((xs[1] - hs) / dx + 1), 0)
-        gymax = min(int((xs[1] + hs) / dx), res - 1)
-
-        for gx in range(gxmin, gxmax + 1):
-            delta_x_Sqr = xs[0] - gx * dx
-            delta_x_Sqr *= delta_x_Sqr
-            for gy in range(gymin, gymax + 1):
-                delta_y_Sqr = xs[1] - gy * dx
-                delta_y_Sqr *= delta_y_Sqr
-                r = np.sqrt(delta_x_Sqr + delta_y_Sqr)
-                if r > hs:
+        corner, width = grid_index_bounds(xs, hs, size, center, res, box_size)
+        for dx in grid_dx * :
+            x = grid_index_to_coordinate(gx, size, center[0], res, box_size)
+            #            print(x)
+            if not coordinate_lies_on_grid(x, size, center[0], res):
+                #  print("not on grid!")
+                continue
+            dx = nearest_image(
+                x - xs[0], box_size
+            )  # grid_dx_from_coordinate(xs[0], gx, size, center[0], res, box_size)
+            ix = coordinate_
+            for gy in range(corner[1], corner[1] + width):
+                y = grid_index_to_coordinate(gy, size, center[1], res, box_size)
+                print(y)
+                if not coordinate_lies_on_grid(y, size, center[1], res):
+                    #    print("not on grid!")
                     continue
+                dy = nearest_image(
+                    y - xs[1], box_size
+                )  # grid_dx_from_coordinate(xs[1], gy, size, center[1], res, box_size)
+                r2 = dy * dy + dx * dx
+                print(
+                    gx,
+                    gy,
+                    x,
+                    y,
+                    dx,
+                    dy,
+                    np.sqrt(r2),
+                )
+                if r2 > hs2:
+                    continue
+                r = np.sqrt(r2)
                 q = r * hinv
                 if q <= 0.5:
                     kernel = 1 - 6 * q * q * (1 - q)
-                elif q <= 1.0:
+                else:
                     a = 1 - q
                     kernel = 2 * a * a * a
-                else:
-                    continue
+
                 grid[gx, gy] += 1.8189136353359467 * kernel * mh2
     return grid
 
@@ -331,7 +461,7 @@ def UpsampleGrid_PPV(grid):
 
 
 def Grid_PPZ_DataCube_Multigrid(
-    f, x, h, center, size, z, h_z, res, box_size=-1, N_grid_kernel=8
+    f, x, h, center, size, z, h_z, res, box_size=-1, grid_res_kernel=8
 ):
     """Faster, multigrid version of Grid_PPZ_DataCube. Since the third dimension is separate from the spatial ones, we only do the multigrid approach on the spatial grid. See Grid_PPZ_DataCube for desription of inputs"""
     if not ((res[0] != 0) and (res[0] & (res[0] - 1) == 0)):
@@ -344,7 +474,9 @@ def Grid_PPZ_DataCube_Multigrid(
         grid = UpsampleGrid_PPV(grid)
         Ni = grid.shape[0]
         # bin particles by smoothing length to decide which resolution level they get deposited at
-        idx = (h / N_grid_kernel < res_bins[i]) & (h / N_grid_kernel >= res_bins[i + 1])
+        idx = (h / grid_res_kernel < res_bins[i]) & (
+            h / grid_res_kernel >= res_bins[i + 1]
+        )
         print(Ni, np.sum(idx))
         if np.any(idx):
             grid += Grid_PPZ_DataCube(
