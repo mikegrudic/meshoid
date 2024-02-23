@@ -310,7 +310,7 @@ def GridSurfaceDensity_core(f, x, h, center, size, res=100, box_size=None):
     grid - np.ndarray
         Shape (res,res) grid of estimated surface density of the quantity f
     """
-    grid_dx = size / (res - 1)
+    #grid_dx = size / (res - 1)
     #    x2d = x[:, :2] - center[:2] + size / 2
 
     grid = np.zeros((res, res))
@@ -323,22 +323,21 @@ def GridSurfaceDensity_core(f, x, h, center, size, res=100, box_size=None):
         hinv = 1 / hs
         mh2 = f[i] * hinv * hinv
 
-        corner, width = grid_index_bounds(xs, hs, size, center, res, box_size)
-        for dx in grid_dx * :
-            x = grid_index_to_coordinate(gx, size, center[0], res, box_size)
-            #            print(x)
-            if not coordinate_lies_on_grid(x, size, center[0], res):
-                #  print("not on grid!")
-                continue
-            dx = nearest_image(
-                x - xs[0], box_size
-            )  # grid_dx_from_coordinate(xs[0], gx, size, center[0], res, box_size)
-            ix = coordinate_
-            for gy in range(corner[1], corner[1] + width):
-                y = grid_index_to_coordinate(gy, size, center[1], res, box_size)
-                print(y)
-                if not coordinate_lies_on_grid(y, size, center[1], res):
-                    #    print("not on grid!")
+
+
+        Nx = len(grid_index_x)
+        Ny = len(grid_index_y)
+
+        for i in range(Nx):
+            ix = grid_index_x[i]
+            x = grid_coordinate_x[i]
+            for j in range(Ny):
+                iy = grid_index_y[j]
+                grid_coordinate_y[j]
+                
+                #y = grid_index_to_coordinate(gy, size, center[1], res, box_size)
+                #print(y)
+                if not coordinate_lies_on_grid(y, size, center[1], res):                
                     continue
                 dy = nearest_image(
                     y - xs[1], box_size
