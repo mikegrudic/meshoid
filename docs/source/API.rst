@@ -11,5 +11,8 @@ API Documentation
     :members:       
 
 .. automodule:: meshoid.derivatives
-    :members:       
+    :members:
+
+.. automodule:: meshoid.radiation.radtransfer
+    :members:              
        
