@@ -128,7 +128,23 @@ HERSCHEL_DEFAULT_WAVELENGTHS = np.array([150, 250, 350, 500])
 def dust_abs_opacity(
     wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, XH=0.71, Zd=1.0
 ) -> np.ndarray:
-    """Returns the dust+PAH absorption opacity in cm^2/g at a set of wavelengths in micron"""
+    """Returns the dust+PAH absorption opacity in cm^2/g at a set of wavelengths
+    in micron
+
+    Parameters
+    ----------
+    wavelength_um: array_like
+        Shape (num_bands) array of wavelengths in micron
+    XH: float, optional
+        Mass fraction of hydrogen (needed to convert from per H to per g)
+    Zd: float, optional
+        Dust-to-gas ratio normalized to Solar neighborhood
+
+    Returns
+    -------
+    kappa: array_like
+        shape (num_bands,) array of opacities in cm^2/g
+    """
     data = np.loadtxt(
         os.path.dirname(os.path.abspath(__file__))
         + "/hensley_draine_2022_astrodust_opacity.dat"
@@ -144,6 +160,20 @@ def thermal_emissivity(kappa, T, wavelengths_um=HERSCHEL_DEFAULT_WAVELENGTHS):
     Returns the thermal emissivity j_ν = 4 pi kappa_ν B_ν(T) in erg/s/g for a
     specified list of wavelengths, temperatures, and opacities defined at those
     wavelengths
+
+    Parameters
+    ----------
+    kappa: array_like
+        shape (N,num_bands) array of opacities
+    T: array_like
+        shape (N,) array of temperatures
+    wavelengths: array_like
+        shape (num_bands,) array of wavelengths
+
+    Returns
+    -------
+    j: array_like
+        shape (N,num_bands) array of thermal emissivities
     """
     h, c, k_B = constants.h, constants.c, constants.k_B
     freqs = c / (wavelengths_um * u.si.micron)
@@ -166,7 +196,7 @@ def dust_emission_map(
     res,
     wavelengths_um=HERSCHEL_DEFAULT_WAVELENGTHS,
     center_pc=0,
-):
+) -> np.ndarray:
     """Generates a map of dust emission in cgs units for specified wavelengths,
     neglecting scattering (OK for FIR/submm wavelengths)
 
