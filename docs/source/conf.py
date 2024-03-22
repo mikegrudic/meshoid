@@ -22,7 +22,7 @@ copyright = '2023, Mike Grudic'
 author = 'Mike Grudic'
 
 # The full version, including alpha/beta/rc tags
-release = '1.45'
+release = '1.46'
 
 
 # -- General configuration ---------------------------------------------------
