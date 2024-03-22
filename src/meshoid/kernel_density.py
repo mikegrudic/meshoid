@@ -57,6 +57,28 @@ def HsmlIter(neighbor_dists, dim=3, error_norm=1e-6):
     return hsml
 
 
+@njit(fastmath=True, error_model="numpy")
+def kernel2d(q):
+    """Returns the normalized 2D spline kernel evaluated at radius q"""
+    if q <= 0.5:
+        kernel = 1 - 6 * q * q * (1 - q)
+    elif q <= 1.0:
+        a = 1 - q
+        kernel = 2 * a * a * a
+    return kernel * 1.8189136353359467
+
+
+@njit(fastmath=True, error_model="numpy")
+def kernel3d(q):
+    """Returns the normalized 3D spline kernel evaluated at radius q"""
+    if q <= 0.5:
+        kernel = 1 - 6 * q * q * (1 - q)
+    elif q <= 1.0:
+        a = 1 - q
+        kernel = 2 * a * a * a
+    return kernel * 2.546479089470325
+
+
 @vectorize([float32(float32), float64(float64)])
 def Kernel(q):
     """

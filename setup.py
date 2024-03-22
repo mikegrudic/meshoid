@@ -6,7 +6,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="meshoid",
-    version="1.45.1",
+    version="1.46.0",
     description="Package for analysis of meshless simulation data",
     #      long_description=long_description,
     url="http://github.com/mikegrudic/meshoid",
@@ -22,7 +22,8 @@ setup(
         "Operating System :: OS Independent",
     ],
     package_dir={"": "src"},
-    packages=setuptools.find_packages(where="src"),
+    packages=['meshoid','meshoid.radiation'],
     python_requires=">=3.6",
     zip_safe=False,
+    include_package_data=True
 )

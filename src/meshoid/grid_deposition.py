@@ -10,6 +10,7 @@ from numba import (
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
 from .derivatives import nearest_image
+from .kernel_density import *
 
 
 @njit(fastmath=True, error_model="numpy")
@@ -142,7 +143,6 @@ def GridSurfaceDensity(
     size - side-length of the map
     res - resolution of the grid
     parallel - whether to run in parallel, if numeric then how many cores
-
     """
 
     if parallel:
@@ -217,23 +217,16 @@ def GridSurfaceDensity_core(f, x, h, center, size, res=100, box_size=-1):
         gymax = min(int((xs[1] + hs) / dx), res - 1)
 
         for gx in range(gxmin, gxmax + 1):
-            delta_x_Sqr = xs[0] - gx * dx
-            delta_x_Sqr *= delta_x_Sqr
+            delta_x_sqr = xs[0] - gx * dx
+            delta_x_sqr *= delta_x_sqr
             for gy in range(gymin, gymax + 1):
-                delta_y_Sqr = xs[1] - gy * dx
-                delta_y_Sqr *= delta_y_Sqr
-                r = np.sqrt(delta_x_Sqr + delta_y_Sqr)
+                delta_y_sqr = xs[1] - gy * dx
+                delta_y_sqr *= delta_y_sqr
+                r = np.sqrt(delta_x_sqr + delta_y_sqr)
                 if r > hs:
                     continue
                 q = r * hinv
-                if q <= 0.5:
-                    kernel = 1 - 6 * q * q * (1 - q)
-                elif q <= 1.0:
-                    a = 1 - q
-                    kernel = 2 * a * a * a
-                else:
-                    continue
-                grid[gx, gy] += 1.8189136353359467 * kernel * mh2
+                grid[gx, gy] += kernel2d(q) * mh2
     return grid
 
 
@@ -264,8 +257,7 @@ def GridSurfaceDensity_conservative_core(f, x, h, center, size, res=100, box_siz
     for i in range(N):
         xs = x2d[i]
         hs = h[i]
-        if hs < dx:
-            hs = dx
+        hs = max(hs, dx)
         hinv = 1 / hs
 
         gxmin = max(int((xs[0] - hs) / dx + 1), 0)
@@ -275,45 +267,31 @@ def GridSurfaceDensity_conservative_core(f, x, h, center, size, res=100, box_siz
 
         total_wt = 0
         for gx in range(gxmin, gxmax + 1):
-            delta_x_Sqr = xs[0] - gx * dx
-            delta_x_Sqr *= delta_x_Sqr
+            delta_x_sqr = xs[0] - gx * dx
+            delta_x_sqr *= delta_x_sqr
             for gy in range(gymin, gymax + 1):
-                delta_y_Sqr = xs[1] - gy * dx
-                delta_y_Sqr *= delta_y_Sqr
-                r = np.sqrt(delta_x_Sqr + delta_y_Sqr)
+                delta_y_sqr = xs[1] - gy * dx
+                delta_y_sqr *= delta_y_sqr
+                r = np.sqrt(delta_x_sqr + delta_y_sqr)
                 if r > hs:
                     continue
                 q = r * hinv
-                if q <= 0.5:
-                    kernel = 1 - 6 * q * q * (1 - q)
-                elif q <= 1.0:
-                    a = 1 - q
-                    kernel = 2 * a * a * a
-                else:
-                    continue
-                total_wt += kernel
+                total_wt += kernel2d(q)
 
         if total_wt == 0:
             continue
 
         for gx in range(gxmin, gxmax + 1):
-            delta_x_Sqr = xs[0] - gx * dx
-            delta_x_Sqr *= delta_x_Sqr
+            delta_x_sqr = xs[0] - gx * dx
+            delta_x_sqr *= delta_x_sqr
             for gy in range(gymin, gymax + 1):
-                delta_y_Sqr = xs[1] - gy * dx
-                delta_y_Sqr *= delta_y_Sqr
-                r = np.sqrt(delta_x_Sqr + delta_y_Sqr)
+                delta_y_sqr = xs[1] - gy * dx
+                delta_y_sqr *= delta_y_sqr
+                r = np.sqrt(delta_x_sqr + delta_y_sqr)
                 if r > hs:
                     continue
                 q = r * hinv
-                if q <= 0.5:
-                    kernel = 1 - 6 * q * q * (1 - q)
-                elif q <= 1.0:
-                    a = 1 - q
-                    kernel = 2 * a * a * a
-                else:
-                    continue
-                grid[gx, gy] += kernel * f[i] / total_wt
+                grid[gx, gy] += kernel2d(q) * f[i] / total_wt
 
     return grid * dx2inv
 
@@ -402,25 +380,18 @@ def Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res, box_size=-1):
         gzmax = min(int((zs + h_z_s) / dz), res[1] - 1)
 
         for gx in range(gxmin, gxmax + 1):
-            delta_x_Sqr = xs[0] - gx * dx
-            delta_x_Sqr *= delta_x_Sqr
+            delta_x_sqr = xs[0] - gx * dx
+            delta_x_sqr *= delta_x_sqr
             for gy in range(gymin, gymax + 1):
-                delta_y_Sqr = xs[1] - gy * dx
-                delta_y_Sqr *= delta_y_Sqr
-                q2dsq = (delta_x_Sqr + delta_y_Sqr) * hinvsq
+                delta_y_sqr = xs[1] - gy * dx
+                delta_y_sqr *= delta_y_sqr
+                q2dsq = (delta_x_sqr + delta_y_sqr) * hinvsq
                 for gz in range(gzmin, gzmax + 1):
-                    delta_z_Sqr = zs - gz * dz
-                    delta_z_Sqr *= delta_z_Sqr
-                    q = np.sqrt(q2dsq + delta_z_Sqr * h_z_invsq)
-                    if q <= 0.5:
-                        kernel = 1 - 6 * q * q + 6 * q * q * q
-                    elif q <= 1.0:
-                        kernel = 2 * (1 - q) * (1 - q) * (1 - q)
-                    else:
-                        continue
-                    grid[gx, gy, gz] += (
-                        2.546479089470325 * kernel * f_density
-                    )  # Using 3D normalization
+                    delta_z_sqr = zs - gz * dz
+                    delta_z_sqr *= delta_z_sqr
+                    q = np.sqrt(q2dsq + delta_z_sqr * h_z_invsq)
+                    # Using 3D normalization
+                    grid[gx, gy, gz] += kernel3d(q) * f_density
     return grid
 
 
@@ -456,18 +427,13 @@ def GridAverage(f, x, h, center, size, res=100, box_size=-1):
         gymax = min(int((xs[1] + hs) / dx), res - 1)
 
         for gx in range(gxmin, gxmax + 1):
-            delta_x_Sqr = xs[0] - gx * dx
-            delta_x_Sqr *= delta_x_Sqr
+            delta_x_sqr = xs[0] - gx * dx
+            delta_x_sqr *= delta_x_sqr
             for gy in range(gymin, gymax + 1):
-                delta_y_Sqr = xs[1] - gy * dx
-                delta_y_Sqr *= delta_y_Sqr
-                q = np.sqrt(delta_x_Sqr + delta_y_Sqr) * hinv
-                if q <= 0.5:
-                    kernel = 1 - 6 * q * q + 6 * q * q * q
-                elif q <= 1.0:
-                    kernel = 2 * (1 - q) * (1 - q) * (1 - q)
-                else:
-                    continue
+                delta_y_sqr = xs[1] - gy * dx
+                delta_y_sqr *= delta_y_sqr
+                q = np.sqrt(delta_x_sqr + delta_y_sqr) * hinv
+                kernel = kernel2d(q)
                 grid1[gx, gy] += kernel * h2
                 grid2[gx, gy] += f[i] * kernel * h2
     return grid2 / grid1
@@ -520,24 +486,19 @@ def WeightedGridInterp3D(f, wt, x, h, center, size, res=100, box_size=-1):
         total_wt = 0
         j = 0
         for gx in range(gxmin, gxmax + 1):
-            #            delta_x_Sqr = xs[0] - gx*dx
-            delta_x_Sqr = xs[0] - gridcoords[gx]
-            delta_x_Sqr *= delta_x_Sqr
+            #            delta_x_sqr = xs[0] - gx*dx
+            delta_x_sqr = xs[0] - gridcoords[gx]
+            delta_x_sqr *= delta_x_sqr
             for gy in range(gymin, gymax + 1):
-                #                delta_y_Sqr = xs[1] - gy*dx
-                delta_y_Sqr = xs[1] - gridcoords[gy]
-                delta_y_Sqr *= delta_y_Sqr
+                #                delta_y_sqr = xs[1] - gy*dx
+                delta_y_sqr = xs[1] - gridcoords[gy]
+                delta_y_sqr *= delta_y_sqr
                 for gz in range(gzmin, gzmax + 1):
-                    delta_z_Sqr = xs[2] - gridcoords[gz]
-                    #                    delta_z_Sqr = xs[2] - gz*dx
-                    delta_z_Sqr *= delta_z_Sqr
-                    q = np.sqrt(delta_x_Sqr + delta_y_Sqr + delta_z_Sqr) * hinv
-                    if q > 1:
-                        kernel = 0
-                    elif q <= 0.5:
-                        kernel = 1 - 6 * q * q + 6 * q * q * q
-                    else:
-                        kernel = 2 * (1 - q) * (1 - q) * (1 - q)
+                    delta_z_sqr = xs[2] - gridcoords[gz]
+                    #                    delta_z_sqr = xs[2] - gz*dx
+                    delta_z_sqr *= delta_z_sqr
+                    q = np.sqrt(delta_x_sqr + delta_y_sqr + delta_z_sqr) * hinv
+                    kernel = kernel3d(q)
                     total_wt += kernel  # to normalize out the kernel weights
                     kval[j] = kernel
                     j += 1
@@ -563,9 +524,8 @@ def WeightedGridInterp3D(f, wt, x, h, center, size, res=100, box_size=-1):
     for i in range(grid.shape[0]):
         for j in range(grid.shape[1]):
             for k in range(grid.shape[2]):
-                if (
-                    gridwt[i, j, k] == 0
-                ):  # we have to search for the nearest neighbor and take its value - this is usually a rare edge case
+                # we have to search for the nearest neighbor and take its value - this is usually a rare edge case
+                if gridwt[i, j, k] == 0:
                     pos[0] = gridcoords[i]
                     pos[1] = gridcoords[j]
                     pos[2] = gridcoords[k]
@@ -630,21 +590,16 @@ def GridDensity(f, x, h, center, size, res=100, box_size=-1.0):
         total_wt = 0
         j = 0
         for gx in range(gxmin, gxmax + 1):
-            delta_x_Sqr = xs[0] - gx * dx
-            delta_x_Sqr *= delta_x_Sqr
+            delta_x_sqr = xs[0] - gx * dx
+            delta_x_sqr *= delta_x_sqr
             for gy in range(gymin, gymax + 1):
-                delta_y_Sqr = xs[1] - gy * dx
-                delta_y_Sqr *= delta_y_Sqr
+                delta_y_sqr = xs[1] - gy * dx
+                delta_y_sqr *= delta_y_sqr
                 for gz in range(gzmin, gzmax + 1):
-                    delta_z_Sqr = xs[2] - gz * dx
-                    delta_z_Sqr *= delta_z_Sqr
-                    q = np.sqrt(delta_x_Sqr + delta_y_Sqr + delta_z_Sqr) * hinv
-                    if q > 1:
-                        kernel = 0
-                    elif q <= 0.5:
-                        kernel = 1 - 6 * q * q + 6 * q * q * q
-                    else:
-                        kernel = 2 * (1 - q) * (1 - q) * (1 - q)
+                    delta_z_sqr = xs[2] - gz * dx
+                    delta_z_sqr *= delta_z_sqr
+                    q = np.sqrt(delta_x_sqr + delta_y_sqr + delta_z_sqr) * hinv
+                    kernel = kernel3d(q)
                     total_wt += kernel  # to normalize out the kernel weights
                     kval[j] = kernel
                     j += 1
@@ -659,125 +614,3 @@ def GridDensity(f, x, h, center, size, res=100, box_size=-1.0):
                     if total_wt > 0:
                         grid[gx % res, gy % res, gz % res] += f[i] * kernel / total_wt
     return grid / (dx * dx * dx)
-
-
-@njit(fastmath=True)
-def GridRadTransfer(lum, m, kappa, x, h, gridres, L, center=0, i0=0):
-    """Simple radiative transfer solver
-
-    Solves the radiative transfer equation with emission and absorption along a grid of sightlines, in multiple bands
-
-    Parameters
-    ----------
-    lum: array_like
-        shape (N, Nbands) array of particle luminosities in the different bands
-    m: array_like
-        shape (N,) array of particle masses
-    kappa: array_like
-        shape (N,) array of particle opacities (dimensions: length^2 / mass)
-    x: array_like
-        shape (N,3) array of particle positions)
-    h: array_like
-        shape (N,) array containing kernel radii of the particles
-    center: array_like
-        shape (3,) array containing the center coordinates of the image
-    gridres: int
-        image resolution
-    L: float
-        size of the image window in length units
-    i0: array_like, optional
-        shape (Nbands,) or (gridres,greidres,Nbands) array of background intensities
-
-    Returns
-    -------
-    image: array_like
-        shape (res,res) array of integrated intensities, in the units of your luminosity units / length units^2 / sr
-    """
-
-    #   don't have parallel working yet - trickier than simple surface density map because the order of extinctions and emissions matters
-    # if ncores = -1:
-    #     Nchunks = get_num_threads()
-    # else:
-    #     set_num_threads(ncores)
-    #     Nchunks = ncores
-
-    x -= center
-    order = (
-        -x[:, 2]
-    ).argsort()  # get order for sorting by distance from observer - farthest to nearest
-
-    lum, m, kappa, x, h = (
-        np.copy(lum)[order],
-        np.copy(m)[order],
-        np.copy(kappa)[order],
-        np.copy(x)[order],
-        np.copy(h)[order],
-    )
-
-    Nbands = lum.shape[1]
-
-    image = np.zeros((gridres, gridres, Nbands))
-    image += i0 * 4 * np.pi  # factor of 4pi because we divide by that at the end
-
-    dx = L / (gridres - 1)
-    N = len(x)
-
-    lh2 = np.empty(Nbands)
-    k = np.empty(Nbands)
-    for i in range(N):
-        # unpack particle properties ##################
-        xs = x[i] + L / 2
-        hs = h[i]
-        if hs == 0:
-            continue
-        for b in range(Nbands):  # unpack the brightness and opacity
-            lh2[b] = lum[i, b] / (hs * hs)
-            k[b] = kappa[i, b]
-            if lh2[b] > 0 or k[b] > 0:
-                skip = False
-        if skip:
-            continue
-        if m[i] == 0:
-            continue
-        mh2 = m[i] / hs**2
-
-        # done unpacking particle properties ##########
-
-        gxmin = max(int((xs[0] - hs) / dx + 1), 0)
-        gxmax = min(int((xs[0] + hs) / dx), gridres - 1)
-        gymin = max(int((xs[1] - hs) / dx + 1), 0)
-        gymax = min(int((xs[1] + hs) / dx), gridres - 1)
-
-        for gx in range(gxmin, gxmax + 1):
-            delta_x_Sqr = xs[0] - gx * dx
-            delta_x_Sqr *= delta_x_Sqr
-            for gy in range(gymin, gymax + 1):
-                delta_y_Sqr = xs[1] - gy * dx
-                delta_y_Sqr *= delta_y_Sqr
-                r = delta_x_Sqr + delta_y_Sqr
-                if r > hs * hs:
-                    continue
-
-                q = np.sqrt(r) / hs
-                if q <= 0.5:
-                    kernel = 1 - 6 * q * q * (1 - q)
-                elif q <= 1.0:
-                    a = 1 - q
-                    kernel = 2 * a * a * a
-                kernel *= 1.8189136353359467
-
-                for b in range(Nbands):
-                    image[gx, gy, b] += kernel * lh2[b]  # emission
-                    tau = (
-                        k[b] * kernel * mh2
-                    )  # optical depth through the sightline through the particle
-                    if tau == 0:
-                        continue
-                    if tau < 0.3:  # if optically thin use approximation
-                        image[gx, gy, b] *= (1 - 0.5 * tau) / (1 + 0.5 * tau)
-                    else:
-                        image[gx, gy, b] *= np.exp(
-                            -tau
-                        )  # otherwise use the full (more expensive) solution
-
-    return image / (4 * np.pi)
