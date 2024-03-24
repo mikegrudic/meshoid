@@ -14,5 +14,8 @@ API Documentation
     :members:
 
 .. automodule:: meshoid.radiation.radtransfer
-    :members:              
+    :members:
+
+.. automodule:: meshoid.radiation.modified_blackbody
+    :members:                     
        
