@@ -1,5 +1,5 @@
 import numpy as np
-from np.linalg import pinv
+from numpy.linalg import pinv
 from numba import njit, prange
 
 
@@ -15,6 +15,22 @@ def modified_planck_function(freqs, logtau, beta, T):
     B(T) = 2 h f^3/c^2 / (exp(h f/(k_B T) -1 ))
 
     and tau(f) = tau0 (f/f0)^beta
+
+    Parameters
+    ----------
+    freqs: array_like
+        Photon frequencies in Hz
+    logtau: float
+        log10 of optical depth at 500um
+    beta: float
+        Dust spectral index beta
+    T: float
+        Temperature in K
+
+    Returns
+    -------
+    I: array_like
+        Intensity of modified blackbody in erg/s/cm^2/sr
     """
     h_over_kB, h, c, f0 = (
         4.799243073366221e-11,
@@ -31,7 +47,26 @@ def modified_planck_function(freqs, logtau, beta, T):
 
 @njit(fastmath=True, error_model="numpy")
 def blackbody_residual_jacobian(freqs, logtau, beta, logT):
-    """Jacobian for least-squares fit to modified blackbody"""
+    """Jacobian for least-squares fit to modified blackbody
+
+    Parameters
+    ----------
+    freqs: array_like
+        Photon frequencies in Hz
+    logtau: float
+        log10 of optical depth at 500um
+    beta: float
+        Dust spectral index beta
+    logT: float
+        log10 of temperature in K
+
+    Returns
+    -------
+    jac: np.ndarray
+        Shape (N,3) matrix of the gradient of the modified blackbody function
+        with respect to logtau, beta, and logT
+    """
+
     h = 6.62607015e-27
     c = 29979245800.0
     f0 = 599584916000.0
@@ -61,28 +96,58 @@ def blackbody_residual_jacobian(freqs, logtau, beta, logT):
 
 @njit(error_model="numpy", parallel=True)
 def modified_blackbody_fit_image(image, wavelengths):
-    """Fit each pixel in a datacube to a modified blackbody"""
+    """Fit each pixel in a datacube to a modified blackbody
+
+    Parameters
+    ----------
+    image: array_like
+        Shape (N,N,num_bands) datacube of dust emission intensities
+    wavelengths:
+        Shape (num_bands,) array of wavelengths at which the SEDs are computed
+
+    Returns
+    -------
+    params: np.ndarray
+        Shape (N,N,3) array of best-fitting modified blackbody parameters:
+            - tau: optical depth at 500 micron
+            - beta: spectral index
+            - T: temperature
+    """
     res = (image.shape[0], image.shape[1])
     params = np.empty((res[0], res[1], 3))
-    p0 = np.array([0.0, 1.5, 1.5])
-    nans = np.array([np.nan, np.nan, np.nan])
     for i in prange(res[0]):
         for j in range(res[1]):
-            # params[i, j] = nans
             params[i, j] = modified_blackbody_fit_gaussnewton(image[i, j], wavelengths)
     return params
 
 
 @njit(error_model="numpy")
-def modified_blackbody_fit_gaussnewton(sed, wavelengths, p0=(0, 1.5, 1.5)):
-    """Fits a modified blackbody SED to the provided SED sampled at
-    a set of wavelengths using Gauss-Newton iteration
+def modified_blackbody_fit_gaussnewton(sed, wavelengths, p0=(1.0, 1.5, 30.0)):
+    """
+    Fits a single SED to a modified blackbody using Gauss-Newton method
+
+    Parameters
+    ----------
+    sed: array_like
+        Shape (num_bands,) array of dust emission intensities
+    wavelengths:
+        Shape (num_bands,) array of wavelengths at which the SEDs are computed
+    p0: tuple, optional
+        Shape (3,) tuple of initial guesses for tau(500um), beta, T
+
+    Returns
+    -------
+    params: np.ndarray
+        Shape (3,) array of best-fitting modified blackbody parameters:
+            - tau(500um): optical depth at 500 micron
+            - beta: spectral index
+            - T: temperature
     """
     freqs = 299792458000000.0 / wavelengths
 
     max_iter = 30
 
-    logtau, beta, logT = p0
+    logtau, beta, logT = np.log10(p0[0]), p0[1], np.log10(p0[2])
     params = np.array([logtau, beta, logT])
     tol, i, error = 1e-15, 0, 1e100
     while error > tol and i < max_iter:
@@ -97,5 +162,6 @@ def modified_blackbody_fit_gaussnewton(sed, wavelengths, p0=(0, 1.5, 1.5)):
         i += 1
         if i > max_iter:
             return np.nan * np.ones(3)
-
+    params[0] = 10 ** params[0]
+    params[2] = 10 ** params[2]
     return params
