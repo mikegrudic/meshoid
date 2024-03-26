@@ -115,9 +115,20 @@ def modified_blackbody_fit_image(image, wavelengths):
     """
     res = (image.shape[0], image.shape[1])
     params = np.empty((res[0], res[1], 3))
+    p0 = np.array([1.0, 1.5, 30.0])
     for i in prange(res[0]):
+        guess = np.copy(p0)
         for j in range(res[1]):
-            params[i, j] = modified_blackbody_fit_gaussnewton(image[i, j], wavelengths)
+            params[i, j] = modified_blackbody_fit_gaussnewton(
+                image[i, j], wavelengths, p0=guess
+            )
+            if not np.any(np.isnan(params[i, j])):
+                guess = params[i, j]  # use previous pixel as next guess
+            else:
+                guess = p0
+                params[i, j] = modified_blackbody_fit_gaussnewton(
+                    image[i, j], wavelengths, p0=guess
+                )
     return params
 
 
@@ -150,14 +161,29 @@ def modified_blackbody_fit_gaussnewton(sed, wavelengths, p0=(1.0, 1.5, 30.0)):
     logtau, beta, logT = np.log10(p0[0]), p0[1], np.log10(p0[2])
     params = np.array([logtau, beta, logT])
     tol, i, error = 1e-15, 0, 1e100
+    #    res = 1e100
+    residual = sed - modified_planck_function(freqs, logtau, beta, 10**logT)
+
     while error > tol and i < max_iter:
         logtau, beta, logT = params
-        residual = sed - modified_planck_function(freqs, logtau, beta, 10**logT)
         try:
             jac_inv = pinv(blackbody_residual_jacobian(freqs, logtau, beta, logT))
         except:
             return np.nan * np.ones(3)
-        params += jac_inv @ residual
+        dx = jac_inv @ residual
+
+        res_new = 1e100
+        res_old = (residual * residual).sum()
+        alpha = 1.0
+        while res_new > res_old:
+            x_new = params + alpha * dx
+            # logtau, beta, logT = x_new
+            residual = sed - modified_planck_function(
+                freqs, x_new[0], x_new[1], 10 ** x_new[2]
+            )
+            res_new = (residual * residual).sum()
+            alpha *= 0.5
+        params = x_new
         error = np.abs(params[1] - beta)
         i += 1
         if i > max_iter:
