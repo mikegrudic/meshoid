@@ -158,10 +158,6 @@ def radtransfer_singlethread(j, m, kappa, x, h, gridres, L, center=0, i0=0):
         for b in range(num_freqs):  # unpack the brightness and opacity
             kappa_i[b] = kappa[i, b]
             j_over_4pi_kappa_i[b] = j[i, b] / (4 * np.pi * kappa_i[b])
-            if j_over_4pi_kappa_i[b] > 0 or kappa_i[b] > 0:
-                skip = False
-        if skip:
-            continue
 
         mh2 = m[i] / hs**2
 
