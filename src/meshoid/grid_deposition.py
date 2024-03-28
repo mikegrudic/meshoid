@@ -89,7 +89,7 @@ def grid_dx_from_coordinate(
 
 
 def GridSurfaceDensityMultigrid(
-    f, x, h, center, size, res=128, box_size=-1, N_grid_kernel=8, parallel=False
+    f, x, h, center, size, res=128, box_size=-1, N_grid_kernel=8, parallel=True
 ):
     if not ((res != 0) and (res & (res - 1) == 0)):
         raise ("Multigrid resolution must be a power of 2")
@@ -126,7 +126,7 @@ def UpsampleGrid(grid):
 
 @njit(parallel=True, fastmath=True)
 def GridSurfaceDensity(
-    f, x, h, center, size, res=100, box_size=-1, parallel=False, conservative=False
+    f, x, h, center, size, res=100, box_size=-1, parallel=True, conservative=False
 ):
     """
     Computes the surface density of conserved quantity f colocated at positions

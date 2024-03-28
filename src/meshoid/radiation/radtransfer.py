@@ -80,7 +80,7 @@ def radtransfer(j, m, kappa, x, h, gridres, L, center=0, i0=0):
     # now we add up total extinction and total integrated intensity from last
     # chunk to first, attenuating each successive slab by the running extinction
     # print("summing slabs...")
-    for c in range(Nchunks-1,-1,-1):
+    for c in range(Nchunks - 1, -1, -1):
         I_total += intensity[c] * np.exp(-tau_total)
         tau_total += tau[c]
     return I_total
@@ -267,7 +267,6 @@ def dust_emission_map(
     res,
     wavelengths_um=HERSCHEL_DEFAULT_WAVELENGTHS,
     center_pc=0,
-    parallel=True,
 ) -> np.ndarray:
     """Generates a map of dust emission in cgs units for specified wavelengths,
     neglecting scattering (OK for FIR/submm wavelengths)

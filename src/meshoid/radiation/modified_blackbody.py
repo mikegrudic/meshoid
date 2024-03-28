@@ -46,13 +46,15 @@ def modified_planck_function(freqs, logtau, beta, T):
 
 
 @njit(fastmath=True, error_model="numpy")
-def blackbody_residual_jacobian(freqs, logtau, beta, logT):
+def blackbody_residual_jacobian(freqs, sed_error, logtau, beta, logT):
     """Jacobian for least-squares fit to modified blackbody
 
     Parameters
     ----------
     freqs: array_like
         Photon frequencies in Hz
+    sed_error: array_like
+        SED errors
     logtau: float
         log10 of optical depth at 500um
     beta: float
@@ -88,20 +90,22 @@ def blackbody_residual_jacobian(freqs, logtau, beta, logT):
             * f**4
             * h**2
             / (c**2 * k * T * (np.cosh(e_over_kT) - 1))
-        )
-        jac[i, 1] = np.log(f / f0) * modbb
-        jac[i, 0] = np.log(10) * modbb
+        ) / sed_error[i]
+        jac[i, 1] = np.log(f / f0) * modbb / sed_error[i]
+        jac[i, 0] = np.log(10) * modbb / sed_error[i]
     return jac
 
 
 @njit(error_model="numpy", parallel=True)
-def modified_blackbody_fit_image(image, wavelengths):
+def modified_blackbody_fit_image(image, image_error, wavelengths):
     """Fit each pixel in a datacube to a modified blackbody
 
     Parameters
     ----------
     image: array_like
         Shape (N,N,num_bands) datacube of dust emission intensities
+    image_error: array_like
+        Shape (N,N,num_bands) datacube of dust emission intensity errors
     wavelengths:
         Shape (num_bands,) array of wavelengths at which the SEDs are computed
 
@@ -120,20 +124,22 @@ def modified_blackbody_fit_image(image, wavelengths):
         guess = np.copy(p0)
         for j in range(res[1]):
             params[i, j] = modified_blackbody_fit_gaussnewton(
-                image[i, j], wavelengths, p0=guess
+                image[i, j], image_error[i, j], wavelengths, p0=guess
             )
             if not np.any(np.isnan(params[i, j])):
                 guess = params[i, j]  # use previous pixel as next guess
             else:
                 guess = p0
                 params[i, j] = modified_blackbody_fit_gaussnewton(
-                    image[i, j], wavelengths, p0=guess
+                    image[i, j], image_error[i, j], wavelengths, p0=guess
                 )
     return params
 
 
 @njit(error_model="numpy")
-def modified_blackbody_fit_gaussnewton(sed, wavelengths, p0=(1.0, 1.5, 30.0)):
+def modified_blackbody_fit_gaussnewton(
+    sed, sed_error, wavelengths, p0=(1.0, 1.5, 30.0)
+):
     """
     Fits a single SED to a modified blackbody using Gauss-Newton method
 
@@ -141,6 +147,8 @@ def modified_blackbody_fit_gaussnewton(sed, wavelengths, p0=(1.0, 1.5, 30.0)):
     ----------
     sed: array_like
         Shape (num_bands,) array of dust emission intensities
+    sed: array_like
+        Shape (num_bands,) array of dust emission intensity errors
     wavelengths:
         Shape (num_bands,) array of wavelengths at which the SEDs are computed
     p0: tuple, optional
@@ -162,12 +170,16 @@ def modified_blackbody_fit_gaussnewton(sed, wavelengths, p0=(1.0, 1.5, 30.0)):
     params = np.array([logtau, beta, logT])
     tol, i, error = 1e-15, 0, 1e100
     #    res = 1e100
-    residual = sed - modified_planck_function(freqs, logtau, beta, 10**logT)
+    residual = (
+        sed - modified_planck_function(freqs, logtau, beta, 10**logT)
+    ) / sed_error
 
     while error > tol and i < max_iter:
         logtau, beta, logT = params
         try:
-            jac_inv = pinv(blackbody_residual_jacobian(freqs, logtau, beta, logT))
+            jac_inv = pinv(
+                blackbody_residual_jacobian(freqs, sed_error, logtau, beta, logT)
+            )
         except:
             return np.nan * np.ones(3)
         dx = jac_inv @ residual
@@ -181,6 +193,7 @@ def modified_blackbody_fit_gaussnewton(sed, wavelengths, p0=(1.0, 1.5, 30.0)):
             residual = sed - modified_planck_function(
                 freqs, x_new[0], x_new[1], 10 ** x_new[2]
             )
+            residual /= sed_error
             res_new = (residual * residual).sum()
             alpha *= 0.5
         params = x_new
