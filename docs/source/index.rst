@@ -10,6 +10,7 @@ Meshoid is a Python package for analyzing meshless particle data, performing suc
 
 
    installation
+   Walkthrough
    API
    community
 
