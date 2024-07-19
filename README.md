@@ -221,13 +221,13 @@ M.D(pos)
 
 
 
-OK now let's look at something physical. Let's calculate the enstrophy, which is just the norm squared of the velocity gradient, and plot it in projection using the ProjectedAverage() method.
+OK now let's look at something physical. Let's calculate the enstrophy, which is just the norm squared of the velocity gradient, and plot it as a slice.
 
 
 ```python
 gradv = M.D(v)
 enstrophy = np.sum(gradv*gradv, axis=(1,2))
-enstrophy_projection = M.Slice(enstrophy,center=np.array([0,0,0]),size=40.,res=res,order=0) # M.ProjectedAverage(enstrophy,center=np.array([0,0,0]),size=40.,res=res)
+enstrophy_projection = M.Slice(enstrophy,center=np.array([0,0,0]),size=40.,res=res,order=0)
 fig, ax = plt.subplots(figsize=(6,6))
 p = ax.pcolormesh(X, Y, enstrophy_projection*.979**2, norm=colors.LogNorm(vmin=10,vmax=1e7))
 divider = make_axes_locatable(ax)
