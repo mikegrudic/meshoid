@@ -164,7 +164,7 @@ p = ax.pcolormesh(X,Y, I[:,:,0], norm=colors.LogNorm(vmin=I.max()/1e3, vmax=I.ma
 ax.set_aspect('equal')
 divider = make_axes_locatable(ax)
 cax = divider.append_axes("right", size="5%", pad=0.0)
-fig.colorbar(p,label=r"$\mu\,\left(L_\odot\,\rm kpc^{-2}\right)\, $",cax=cax)
+fig.colorbar(p,label=r"$I\,\left(L_\odot\,\rm kpc^{-2}\,\rm sr^{-1}\right)\, $",cax=cax)
 ax.set_xlabel("X (kpc)")
 ax.set_ylabel("Y (kpc)")
 plt.show()
