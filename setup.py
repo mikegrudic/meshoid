@@ -22,8 +22,8 @@ setup(
         "Operating System :: OS Independent",
     ],
     package_dir={"": "src"},
-    packages=['meshoid','meshoid.radiation'],
+    packages=["meshoid", "meshoid.radiation"],
     python_requires=">=3.6",
     zip_safe=False,
-    include_package_data=True
+    include_package_data=True,
 )

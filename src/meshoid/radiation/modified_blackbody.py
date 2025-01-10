@@ -84,13 +84,7 @@ def blackbody_residual_jacobian(freqs, sed_error, logtau, beta, logT):
         tauf = tau0 * (f / f0) ** beta
         taufac = -np.expm1(-tauf)
         modbb = 2 * h / c**2 * f**3 * taufac / expfac
-        jac[i, 2] = (
-            np.log(10)
-            * taufac
-            * f**4
-            * h**2
-            / (c**2 * k * T * (np.cosh(e_over_kT) - 1))
-        ) / sed_error[i]
+        jac[i, 2] = (np.log(10) * taufac * f**4 * h**2 / (c**2 * k * T * (np.cosh(e_over_kT) - 1))) / sed_error[i]
         jac[i, 1] = np.log(f / f0) * modbb / sed_error[i]
         jac[i, 0] = np.log(10) * modbb / sed_error[i]
     return jac
@@ -123,9 +117,7 @@ def modified_blackbody_fit_image(image, image_error, wavelengths):
     for i in prange(res[0]):
         guess = np.copy(p0)
         for j in range(res[1]):
-            params[i, j] = modified_blackbody_fit_gaussnewton(
-                image[i, j], image_error[i, j], wavelengths, p0=guess
-            )
+            params[i, j] = modified_blackbody_fit_gaussnewton(image[i, j], image_error[i, j], wavelengths, p0=guess)
             if not np.any(np.isnan(params[i, j])):
                 guess = params[i, j]  # use previous pixel as next guess
             else:
@@ -137,9 +129,7 @@ def modified_blackbody_fit_image(image, image_error, wavelengths):
 
 
 @njit(error_model="numpy")
-def modified_blackbody_fit_gaussnewton(
-    sed, sed_error, wavelengths, p0=(1.0, 1.5, 30.0)
-):
+def modified_blackbody_fit_gaussnewton(sed, sed_error, wavelengths, p0=(1.0, 1.5, 30.0)):
     """
     Fits a single SED to a modified blackbody using Gauss-Newton method
 
@@ -170,16 +160,12 @@ def modified_blackbody_fit_gaussnewton(
     params = np.array([logtau, beta, logT])
     tol, i, error = 1e-15, 0, 1e100
     #    res = 1e100
-    residual = (
-        sed - modified_planck_function(freqs, logtau, beta, 10**logT)
-    ) / sed_error
+    residual = (sed - modified_planck_function(freqs, logtau, beta, 10**logT)) / sed_error
 
     while error > tol and i < max_iter:
         logtau, beta, logT = params
         try:
-            jac_inv = pinv(
-                blackbody_residual_jacobian(freqs, sed_error, logtau, beta, logT)
-            )
+            jac_inv = pinv(blackbody_residual_jacobian(freqs, sed_error, logtau, beta, logT))
         except:
             return np.nan * np.ones(3)
         dx = jac_inv @ residual
@@ -190,9 +176,7 @@ def modified_blackbody_fit_gaussnewton(
         while res_new > res_old:
             x_new = params + alpha * dx
             # logtau, beta, logT = x_new
-            residual = sed - modified_planck_function(
-                freqs, x_new[0], x_new[1], 10 ** x_new[2]
-            )
+            residual = sed - modified_planck_function(freqs, x_new[0], x_new[1], 10 ** x_new[2])
             residual /= sed_error
             res_new = (residual * residual).sum()
             alpha *= 0.5

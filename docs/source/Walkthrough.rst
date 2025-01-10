@@ -24,7 +24,7 @@ density cut at n_H ~ .1 cm^-3 to narrow it down to just the ISM.
     # download the data - feel free to use your own snapshots!
     for i in range(4):
         if not isfile(f"./snapshot_600.{i}.hdf5"):
-            system(f"wget -r -nH --cut-dirs=6 --no-parent --reject='index.html*' -e robots=off https://users.flatironinstitute.org/~chayward/fire2_public_release/core/m12i_res7100/output/snapdir_600/snapshot_600.{i}.hdf5")
+            system(f"wget -r -nH --cut-dirs=6 --no-parent --reject='index.html*' -e robots=off https://users.flatironinstitute.org/~mgrudic/fire2_public_release/core/m12i_res7100/output/snapdir_600/snapshot_600.{i}.hdf5")
     
     rho = load_from_snapshot("Density", 0, ".", 600)
     RHO_TO_NH = 300 # convert to H number density (approx)

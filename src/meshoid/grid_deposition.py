@@ -14,9 +14,7 @@ from .kernel_density import *
 
 
 @njit(fastmath=True, error_model="numpy")
-def grid_index_to_coordinate(
-    index: int, grid_length: float, grid_center: float, N_grid: int, box_size=None
-):
+def grid_index_to_coordinate(index: int, grid_length: float, grid_center: float, N_grid: int, box_size=None):
     """Convert the index of a grid to the *cell-centered* coordinate of that
     grid cell, in a given dimension
 
@@ -88,9 +86,7 @@ def grid_dx_from_coordinate(
     return dx
 
 
-def GridSurfaceDensityMultigrid(
-    f, x, h, center, size, res=128, box_size=-1, N_grid_kernel=8, parallel=True
-):
+def GridSurfaceDensityMultigrid(f, x, h, center, size, res=128, box_size=-1, N_grid_kernel=8, parallel=True):
     if not ((res != 0) and (res & (res - 1) == 0)):
         raise ("Multigrid resolution must be a power of 2")
     res_bins = size / 2 ** np.arange(0, round(np.log2(res) + 1))
@@ -125,9 +121,7 @@ def UpsampleGrid(grid):
 
 
 @njit(parallel=True, fastmath=True)
-def GridSurfaceDensity(
-    f, x, h, center, size, res=100, box_size=-1, parallel=True, conservative=False
-):
+def GridSurfaceDensity(f, x, h, center, size, res=100, box_size=-1, parallel=True, conservative=False):
     """
     Computes the surface density of conserved quantity f colocated at positions
     x with smoothing lengths h. E.g. plugging in particle masses would return
@@ -136,22 +130,29 @@ def GridSurfaceDensity(
 
     Parameters
     ----------
-    f - (N,) array of the conserved quantity that you want the surface density of (e.g. particle masses)
-    x - (N,3) array of particle positions
-    h - (N,) array of particle smoothing lengths
-    center - (2,) array containing the coorindates of the center of the map
-    size - side-length of the map
-    res - resolution of the grid
-    parallel - whether to run in parallel, if numeric then how many cores
+    f: array_like
+        Shape (N,) array of the conserved quantity that you want the surface density of (e.g. particle masses)
+    x: array_like
+        Shape (N,3) array of particle positions
+    h: array_like
+        Shape (N,) array of particle smoothing lengths
+    center: array_like
+        Shape (2,) array containing the coorindates of the center of the map
+    size: float
+        Side-length of the map
+    res: int, optional
+        Resolution of the map
+    parallel: boolean, optional
+        Whether to run in parallel (default True)
+    conservative: boolean, optional
+        Whether to do a a perfectly-conservative deposition to the grid (default False)
     """
 
     if parallel:
         Nthreads = get_num_threads()
         # chunk the particles among the threads
         chunksize = max(len(f) // Nthreads, 1)
-        sigmas = np.empty(
-            (Nthreads, res, res)
-        )  # will store separate grids and sum them at the end
+        sigmas = np.empty((Nthreads, res, res))  # will store separate grids and sum them at the end
 
         for i in prange(Nthreads):
             # for i in range(Nthreads):
@@ -178,9 +179,7 @@ def GridSurfaceDensity(
         return sigmas.sum(0)
     else:
         if conservative:
-            return GridSurfaceDensity_conservative_core(
-                f, x, h, center, size, res, box_size
-            )
+            return GridSurfaceDensity_conservative_core(f, x, h, center, size, res, box_size)
         else:
             return GridSurfaceDensity_core(f, x, h, center, size, res, box_size)
 
@@ -308,9 +307,7 @@ def UpsampleGrid_PPV(grid):
     return newgrid
 
 
-def Grid_PPZ_DataCube_Multigrid(
-    f, x, h, center, size, z, h_z, res, box_size=-1, N_grid_kernel=8
-):
+def Grid_PPZ_DataCube_Multigrid(f, x, h, center, size, z, h_z, res, box_size=-1, N_grid_kernel=8):
     """Faster, multigrid version of Grid_PPZ_DataCube. Since the third dimension is separate from the spatial ones, we only do the multigrid approach on the spatial grid. See Grid_PPZ_DataCube for desription of inputs"""
     if not ((res[0] != 0) and (res[0] & (res[0] - 1) == 0)):
         raise ("Multigrid resolution must be a power of 2")
@@ -455,9 +452,7 @@ def WeightedGridInterp3D(f, wt, x, h, center, size, res=100, box_size=-1):
     """
     dx = size / (res - 1)
 
-    x3d = (
-        x - center
-    )  # coordinates in the grid frame, such that the origin is at the corner of the grid
+    x3d = x - center  # coordinates in the grid frame, such that the origin is at the corner of the grid
     gridcoords = np.linspace(dx / 2 - size / 2, size / 2 - dx / 2, res)
 
     grid = np.zeros((res, res, res))
@@ -480,9 +475,7 @@ def WeightedGridInterp3D(f, wt, x, h, center, size, res=100, box_size=-1):
         gzmax = min(int(x_to_grid_idx[2] + hs_dx), res - 1)
 
         # first have to do a prepass to get the weight
-        kval = np.empty(
-            int(2 * hs / dx + 1) ** 3
-        )  # save kernel values so don't have to recompute
+        kval = np.empty(int(2 * hs / dx + 1) ** 3)  # save kernel values so don't have to recompute
         total_wt = 0
         j = 0
         for gx in range(gxmin, gxmax + 1):
@@ -511,12 +504,8 @@ def WeightedGridInterp3D(f, wt, x, h, center, size, res=100, box_size=-1):
                     kernel = kval[j]
                     j += 1
                     if total_wt > 0:
-                        grid[gx % res, gy % res, gz % res] += (
-                            f[i] * kernel * wt[i] / total_wt
-                        )
-                        gridwt[gx % res, gy % res, gz % res] += (
-                            kernel * wt[i] / total_wt
-                        )
+                        grid[gx % res, gy % res, gz % res] += f[i] * kernel * wt[i] / total_wt
+                        gridwt[gx % res, gy % res, gz % res] += kernel * wt[i] / total_wt
 
     result = grid / gridwt
     #    do a loop through the grid to check for nans and address if needed
@@ -584,9 +573,7 @@ def GridDensity(f, x, h, center, size, res=100, box_size=-1.0):
             gzmax = int((xs[2] + hs) / dx)
 
         # first have to do a prepass to get the weight
-        kval = np.empty(
-            int(2 * hs / dx + 1) ** 3
-        )  # save kernel values so don't have to recompute
+        kval = np.empty(int(2 * hs / dx + 1) ** 3)  # save kernel values so don't have to recompute
         total_wt = 0
         j = 0
         for gx in range(gxmin, gxmax + 1):

@@ -1,4 +1,5 @@
 """Functions for computing the matrices weights for least-squares derivative operators"""
+
 from numba import njit, prange, vectorize
 import numpy as np
 from .kernel_density import Kernel
@@ -114,9 +115,7 @@ def get_num_derivs(dim: int, order: int) -> int:
 
 
 @njit(parallel=True, fastmath=True, error_model="numpy")
-def gradient_weights(
-    pos, ngb, kernel_radius, indices, boxsize=None, weighted=True, order=1
-):
+def gradient_weights(pos, ngb, kernel_radius, indices, boxsize=None, weighted=True, order=1):
     """Computes the N_particles (dim x N_ngb) matrices that encode the least-
     squares gradient operators
     """
@@ -128,9 +127,7 @@ def gradient_weights(
 
     for i in prange(N):
         index = indices[i]
-        dx, weights = kernel_dx_and_weights(
-            index, pos, ngb[i], kernel_radius[i], boxsize, weighted
-        )
+        dx, weights = kernel_dx_and_weights(index, pos, ngb[i], kernel_radius[i], boxsize, weighted)
         lhs_matrix, rhs_matrix = polyfit_leastsq_matrices(dx, weights, order)
         lhs_matrix_inv = np.linalg.inv(lhs_matrix)
         for k in range(num_derivs):

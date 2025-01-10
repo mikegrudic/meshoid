@@ -70,9 +70,7 @@ def radtransfer(j, m, kappa, x, h, gridres, L, center=0, i0=0):
     # parallel part, raytracing the individual slabs
     # print("Raytracing...")
     for c in prange(Nchunks):
-        intensity[c], tau[c] = radtransfer_singlethread(
-            j[c], m[c], kappa[c], x[c], h[c], gridres, L, center, i0
-        )
+        intensity[c], tau[c] = radtransfer_singlethread(j[c], m[c], kappa[c], x[c], h[c], gridres, L, center, i0)
 
     tau_total = np.zeros((gridres, gridres, num_bands))
     I_total = np.zeros((gridres, gridres, num_bands))
@@ -187,18 +185,14 @@ def radtransfer_singlethread(j, m, kappa, x, h, gridres, L, center=0, i0=0):
                     fac1 = np.exp(-tau)
                     fac2 = -np.expm1(-tau)
                     taumap[gx, gy, b] += tau
-                    intensity[gx, gy, b] = (
-                        fac1 * intensity[gx, gy, b] + fac2 * j_over_4pi_kappa_i[b]
-                    )
+                    intensity[gx, gy, b] = fac1 * intensity[gx, gy, b] + fac2 * j_over_4pi_kappa_i[b]
     return intensity, taumap
 
 
 HERSCHEL_DEFAULT_WAVELENGTHS = np.array([150, 250, 350, 500])
 
 
-def dust_abs_opacity(
-    wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, XH=0.71, Zd=1.0
-) -> np.ndarray:
+def dust_abs_opacity(wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, XH=0.71, Zd=1.0) -> u.quantity.Quantity:
     """Returns the dust+PAH absorption opacity in cm^2/g at a set of wavelengths
     in micron
 
@@ -216,14 +210,41 @@ def dust_abs_opacity(
     kappa: array_like
         shape (num_bands,) array of opacities in cm^2/g
     """
-    data = np.loadtxt(
-        os.path.dirname(os.path.abspath(__file__))
-        + "/hensley_draine_2022_astrodust_opacity.dat"
-    )
+    data = np.loadtxt(os.path.dirname(os.path.abspath(__file__)) + "/hensley_draine_2022_astrodust_opacity.dat")
     wavelength_grid, kappa_abs_PAH, kappa_abs_astrodust = data[:, :3].T
     kappa_abs = kappa_abs_PAH + kappa_abs_astrodust
     kappa_per_H = np.interp(wavelength_um, wavelength_grid, kappa_abs)
-    return kappa_per_H * (XH / (constants.m_p)).cgs.value * Zd
+    return kappa_per_H * (XH / (constants.m_p)).cgs.value * Zd * u.cm**2 / u.g
+
+
+def dust_ext_opacity(wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, XH=0.71, Zd=1.0) -> u.quantity.Quantity:
+    """Returns the dust+PAH extinction opacity in cm^2/g at a set of wavelengths
+    in micron
+
+    Parameters
+    ----------
+    wavelength_um: array_like
+        Shape (num_bands) array of wavelengths in micron
+    XH: float, optional
+        Mass fraction of hydrogen (needed to convert from per H to per g)
+    Zd: float, optional
+        Dust-to-gas ratio normalized to Solar neighborhood
+
+    Returns
+    -------
+    kappa: array_like
+        shape (num_bands,) array of opacities in cm^2/g
+    """
+    data = np.loadtxt(os.path.dirname(os.path.abspath(__file__)) + "/hensley_draine_2022_astrodust_opacity.dat")
+    wavelength_grid, kappa_ext = data[:, 0], data[:, -2]
+    kappa_per_H = np.interp(wavelength_um, wavelength_grid, kappa_ext)
+    return kappa_per_H * (XH / (constants.m_p)).cgs.value * Zd * u.cm**2 / u.g
+
+
+def dust_scattering_opacity(
+    wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, XH=0.71, Zd=1.0
+) -> u.quantity.Quantity:
+    return dust_ext_opacity(wavelength_um, XH, Zd) - dust_abs_opacity(wavelength_um, XH, Zd)
 
 
 def thermal_emissivity(kappa, T, wavelengths_um=HERSCHEL_DEFAULT_WAVELENGTHS):
@@ -248,13 +269,7 @@ def thermal_emissivity(kappa, T, wavelengths_um=HERSCHEL_DEFAULT_WAVELENGTHS):
     """
     h, c, k_B = constants.h, constants.c, constants.k_B
     freqs = c / (wavelengths_um * u.si.micron)
-    B = (
-        2
-        * h
-        * freqs[None, :] ** 3
-        * c**-2
-        / np.expm1(h * freqs[None, :] / (k_B * T[:, None] * u.K))
-    )
+    B = 2 * h * freqs[None, :] ** 3 * c**-2 / np.expm1(h * freqs[None, :] / (k_B * T[:, None] * u.K))
     return (4 * np.pi * kappa * u.cm**2 / u.g * B).cgs.value
 
 

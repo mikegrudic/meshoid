@@ -81,11 +81,7 @@ class Meshoid:
         if self.boxsize is None:
             # self.boxsize = -1.0
             self.center = np.median(self.pos, axis=0)
-            self.L = (
-                2
-                * np.percentile(np.sum((self.pos - self.center) ** 2, axis=1), 90)
-                ** 0.5
-            )
+            self.L = 2 * np.percentile(np.sum((self.pos - self.center) ** 2, axis=1), 90) ** 0.5
         else:
             self.center = np.ones(3) * self.boxsize / 2
             self.L = self.boxsize
@@ -158,9 +154,7 @@ class Meshoid:
 
         if self.verbose:
             print("Finding neighbors...")
-        self.ngbdist, self.ngb = self.tree.query(
-            self.pos[self.particle_mask], self.des_ngb, workers=self.n_jobs
-        )
+        self.ngbdist, self.ngb = self.tree.query(self.pos[self.particle_mask], self.des_ngb, workers=self.n_jobs)
 
         if self.verbose:
             print("Neighbours found!")
@@ -172,11 +166,7 @@ class Meshoid:
         if self.verbose:
             print("Smoothing lengths found!")
 
-        self.density = (
-            self.des_ngb
-            * self.m[self.particle_mask]
-            / (self.volnorm * self.kernel_radius**self.dim)
-        )
+        self.density = self.des_ngb * self.m[self.particle_mask] / (self.volnorm * self.kernel_radius**self.dim)
         self.vol = self.m[self.particle_mask] / self.density
 
     def get_kernel_weights(self):
@@ -356,9 +346,7 @@ class Meshoid:
             self.TreeUpdate()
         elif self.vol is None:
             self.vol = self.volnorm * self.kernel_radius**self.dim
-        return np.einsum(
-            "i,i...->...", self.vol, f[self.particle_mask], optimize="optimal"
-        )
+        return np.einsum("i,i...->...", self.vol, f[self.particle_mask], optimize="optimal")
 
     def KernelVariance(self, f):
         """
@@ -420,9 +408,7 @@ class Meshoid:
             self.BuildTree()
         # get nearest neighbor of each target point
         target_neighbors = self.tree.query(target_points, workers=self.n_jobs)[1]
-        unique_neighbors, neighbor_idx = np.unique(
-            target_neighbors, return_inverse=True
-        )
+        unique_neighbors, neighbor_idx = np.unique(target_neighbors, return_inverse=True)
 
         # get value of f at each nearest neighbor
         f_target = np.take(f, target_neighbors, axis=0)
@@ -444,9 +430,7 @@ class Meshoid:
 
         # 2nd order reconstruction
         d2f_neighbors = self.D2(f).take(neighbor_idx, axis=0)
-        f_target += 0.5 * np.einsum(
-            "ij,ij...->i...", dx * dx, d2f_neighbors[..., :3]
-        )  # pure 2nd derivative terms
+        f_target += 0.5 * np.einsum("ij,ij...->i...", dx * dx, d2f_neighbors[..., :3])  # pure 2nd derivative terms
         for dim in range(self.dim):
             f_target += np.einsum(
                 "i,i...->i...",
@@ -500,9 +484,7 @@ class Meshoid:
         if self.tree is None:
             self.TreeUpdate()
 
-        x, y = np.linspace(-size / 2, size / 2, res), np.linspace(
-            -size / 2, size / 2, res
-        )
+        x, y = np.linspace(-size / 2, size / 2, res), np.linspace(-size / 2, size / 2, res)
         x, y = np.meshgrid(x, y, indexing="ij")
 
         slicegrid = np.c_[x.flatten(), y.flatten(), np.zeros(res * res)] + center
@@ -606,9 +588,7 @@ class Meshoid:
 
         h = np.clip(self.kernel_radius, size / (res - 1), 1e100)
 
-        f_grid = GridDensity(
-            f, self.pos, h, center, size, res=res, box_size=self.boxsize
-        )
+        f_grid = GridDensity(f, self.pos, h, center, size, res=res, box_size=self.boxsize)
 
         return f_grid
 
@@ -662,9 +642,7 @@ class Meshoid:
             conservative=conservative,
         )
 
-    def ProjectedAverage(
-        self, f, size=None, center=None, res=128, smooth_fac=1.0  # plane="z",
-    ):
+    def ProjectedAverage(self, f, size=None, center=None, res=128, smooth_fac=1.0):  # plane="z",
         """
         Computes the average value of a quantity f along a Cartesian grid of sightlines from +/- infinity.
 
@@ -701,9 +679,7 @@ class Meshoid:
             self.boxsize,
         )
 
-    def Projection(
-        self, f, size=None, center=None, res=128, smooth_fac=1.0  # plane="z",
-    ):
+    def Projection(self, f, size=None, center=None, res=128, smooth_fac=1.0):  # plane="z",
         """
         Computes the integral of quantity f along a Cartesian grid of sightlines
         from +/- infinity. e.g. plugging in 3D density for f will return
