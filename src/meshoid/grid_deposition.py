@@ -151,16 +151,16 @@ def GridSurfaceDensity(f, x, h, center, size, res=100, box_size=-1, parallel=Tru
     if parallel:
         Nthreads = get_num_threads()
         # chunk the particles among the threads
-        chunksize = max(len(f) // Nthreads, 1)
         sigmas = np.empty((Nthreads, res, res))  # will store separate grids and sum them at the end
 
+        f, x, h = np.array_split(f, Nthreads, 0), np.array_split(x, Nthreads, 0), np.array_split(h, Nthreads, 0)
+
         for i in prange(Nthreads):
-            # for i in range(Nthreads):
             if conservative:
                 sigmas[i] = GridSurfaceDensity_conservative_core(
-                    f[i * chunksize : (i + 1) * chunksize],
-                    x[i * chunksize : (i + 1) * chunksize],
-                    h[i * chunksize : (i + 1) * chunksize],
+                    f[i],
+                    x[i],
+                    h[i],
                     center,
                     size,
                     res,
@@ -168,9 +168,9 @@ def GridSurfaceDensity(f, x, h, center, size, res=100, box_size=-1, parallel=Tru
                 )
             else:
                 sigmas[i] = GridSurfaceDensity_core(
-                    f[i * chunksize : (i + 1) * chunksize],
-                    x[i * chunksize : (i + 1) * chunksize],
-                    h[i * chunksize : (i + 1) * chunksize],
+                    f[i],
+                    x[i],
+                    h[i],
                     center,
                     size,
                     res,
