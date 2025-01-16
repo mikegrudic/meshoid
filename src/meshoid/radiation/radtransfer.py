@@ -51,7 +51,7 @@ def radtransfer(j, m, kappa, x, h, gridres, L, center=0, i0=0):
 
     # sort by z then split into chunks
     # print("Sorting...")
-    order = x[:, 2].argsort()
+    order = (x[:, 2]).argsort()
     # print("Chunking...")
     j, m, kappa, x, h = (
         np.array_split(j[order], Nchunks, 0),
