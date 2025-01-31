@@ -309,7 +309,7 @@ def dust_emission_map(
     -------
     intensity: array_like
         shape (res,res,num_bands) datacube of dust emission intensity
-        in erg/s/cm^2/sr
+        in erg/s/cm^2/sr/Hz
     """
     kappa = dust_abs_opacity(wavelengths_um)
     kappa = np.array(len(x_pc) * [kappa])
