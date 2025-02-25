@@ -91,7 +91,7 @@ def blackbody_residual_jacobian(freqs, sed_error, logtau, beta, logT):
 
 
 @njit(error_model="numpy", parallel=True)
-def modified_blackbody_fit_image(image, image_error, wavelengths):
+def modified_blackbody_fit_image(image, image_error, wavelengths, fixed_beta=0):
     """Fit each pixel in a datacube to a modified blackbody
 
     Parameters
@@ -100,8 +100,11 @@ def modified_blackbody_fit_image(image, image_error, wavelengths):
         Shape (N,N,num_bands) datacube of dust emission intensities
     image_error: array_like
         Shape (N,N,num_bands) datacube of dust emission intensity errors
-    wavelengths:
+    wavelengths: array_like
         Shape (num_bands,) array of wavelengths at which the SEDs are computed
+    fixed_beta: float, optional
+        If 0 (the default), the spectral index beta is allowed to vary freely as a fit parameter.
+    Otherwise, fits are performed assuming this fixed value of beta.
 
     Returns
     -------
@@ -112,24 +115,31 @@ def modified_blackbody_fit_image(image, image_error, wavelengths):
             - T: temperature
     """
     res = (image.shape[0], image.shape[1])
-    params = np.empty((res[0], res[1], 3))
-    p0 = np.array([1.0, 1.5, 30.0])
+    if fixed_beta:
+        params = np.empty((res[0], res[1], 2))
+        p0 = np.array([1e-3, 30.0])
+    else:
+        params = np.empty((res[0], res[1], 3))
+        p0 = np.array([1e-3, 1.8, 30.0])
+
     for i in prange(res[0]):
         guess = np.copy(p0)
         for j in range(res[1]):
-            params[i, j] = modified_blackbody_fit_gaussnewton(image[i, j], image_error[i, j], wavelengths, p0=guess)
+            params[i, j] = modified_blackbody_fit_gaussnewton(
+                image[i, j], image_error[i, j], wavelengths, p0=guess, fixed_beta=fixed_beta
+            )
             if not np.any(np.isnan(params[i, j])):
                 guess = params[i, j]  # use previous pixel as next guess
             else:
                 guess = p0
                 params[i, j] = modified_blackbody_fit_gaussnewton(
-                    image[i, j], image_error[i, j], wavelengths, p0=guess
+                    image[i, j], image_error[i, j], wavelengths, p0=guess, fixed_beta=fixed_beta
                 )
     return params
 
 
 @njit(error_model="numpy")
-def modified_blackbody_fit_gaussnewton(sed, sed_error, wavelengths, p0=(1.0, 1.5, 30.0)):
+def modified_blackbody_fit_gaussnewton(sed, sed_error, wavelengths, p0=(1.0, 1.5, 30.0), fixed_beta=0.0):
     """
     Fits a single SED to a modified blackbody using Gauss-Newton method
 
@@ -143,6 +153,9 @@ def modified_blackbody_fit_gaussnewton(sed, sed_error, wavelengths, p0=(1.0, 1.5
         Shape (num_bands,) array of wavelengths at which the SEDs are computed
     p0: tuple, optional
         Shape (3,) tuple of initial guesses for tau(500um), beta, T
+    fixed_beta: float, optional
+        If 0 (the default), the spectral index beta is allowed to vary freely as a fit parameter.
+    Otherwise, fits are performed assuming this fixed value of beta.
 
     Returns
     -------
@@ -156,18 +169,33 @@ def modified_blackbody_fit_gaussnewton(sed, sed_error, wavelengths, p0=(1.0, 1.5
 
     max_iter = 30
 
-    logtau, beta, logT = np.log10(p0[0]), p0[1], np.log10(p0[2])
-    params = np.array([logtau, beta, logT])
+    if fixed_beta:
+        num_params = 2
+        logtau, logT = np.log10(p0[0]), np.log10(p0[1])
+        beta = fixed_beta
+        params = np.array([logtau, logT])
+    else:
+        num_params = 3
+        logtau, beta, logT = np.log10(p0[0]), p0[1], np.log10(p0[2])
+        params = np.array([logtau, beta, logT])
     tol, i, error = 1e-15, 0, 1e100
-    #    res = 1e100
     residual = (sed - modified_planck_function(freqs, logtau, beta, 10**logT)) / sed_error
 
     while error > tol and i < max_iter:
-        logtau, beta, logT = params
+        if fixed_beta:
+            beta = fixed_beta
+            logtau, logT = params
+        else:
+            logtau, beta, logT = params
+
         try:
-            jac_inv = pinv(blackbody_residual_jacobian(freqs, sed_error, logtau, beta, logT))
+            jac = blackbody_residual_jacobian(freqs, sed_error, logtau, beta, logT)
+            if fixed_beta:
+                jac = jac[:, ::2]
+            jac_inv = pinv(jac)
         except:
-            return np.nan * np.ones(3)
+            return np.nan * np.ones(num_params)
+
         dx = jac_inv @ residual
 
         res_new = 1e100
@@ -175,16 +203,22 @@ def modified_blackbody_fit_gaussnewton(sed, sed_error, wavelengths, p0=(1.0, 1.5
         alpha = 1.0
         while res_new > res_old:
             x_new = params + alpha * dx
-            # logtau, beta, logT = x_new
-            residual = sed - modified_planck_function(freqs, x_new[0], x_new[1], 10 ** x_new[2])
+            if fixed_beta:
+                I = modified_planck_function(freqs, x_new[0], fixed_beta, 10 ** x_new[1])
+            else:
+                I = modified_planck_function(freqs, x_new[0], x_new[1], 10 ** x_new[2])
+            residual = sed - I
             residual /= sed_error
             res_new = (residual * residual).sum()
             alpha *= 0.5
         params = x_new
-        error = np.abs(params[1] - beta)
+        error = np.abs(params[0] - logtau)
         i += 1
         if i > max_iter:
-            return np.nan * np.ones(3)
+            return np.nan * np.ones(num_params)
     params[0] = 10 ** params[0]
-    params[2] = 10 ** params[2]
+    params[num_params - 1] = 10 ** params[num_params - 1]
+    if not fixed_beta:
+        if params[1] < 0:
+            params[1] = np.nan
     return params
