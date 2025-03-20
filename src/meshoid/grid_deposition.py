@@ -1,12 +1,4 @@
-from numba import (
-    vectorize,
-    float32,
-    float64,
-    njit,
-    jit,
-    prange,
-    get_num_threads,
-)
+from numba import njit, prange, get_num_threads
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
 from .derivatives import nearest_image
@@ -45,14 +37,7 @@ def grid_index_to_coordinate(index: int, grid_length: float, grid_center: float,
 
 
 @njit(fastmath=True, error_model="numpy")
-def grid_dx_from_coordinate(
-    x: float,
-    index: int,
-    grid_length: float,
-    grid_center: float,
-    N_grid: int,
-    box_size=None,
-):
+def grid_dx_from_coordinate(x: float, index: int, grid_length: float, grid_center: float, N_grid: int, box_size=None):
     """
     Returns the *nearest image* coordinate difference from a given coordinate x
     to the cell-centered grid-point residing at index
@@ -101,14 +86,7 @@ def GridSurfaceDensityMultigrid(f, x, h, center, size, res=128, box_size=-1, N_g
         idx = (h / N_grid_kernel < res_bins[i]) & (h / N_grid_kernel >= res_bins[i + 1])
         if np.any(idx):
             grid += GridSurfaceDensity(
-                f[idx],
-                x[idx],
-                h[idx],
-                center,
-                size,
-                res=Ni,
-                box_size=box_size,
-                parallel=parallel,
+                f[idx], x[idx], h[idx], center, size, res=Ni, box_size=box_size, parallel=parallel
             )
     return grid
 
@@ -120,8 +98,8 @@ def UpsampleGrid(grid):
     return RectBivariateSpline(x1, x1, grid)(x2, x2)  # RectBivariateSpline(x1,
 
 
-@njit(parallel=True, fastmath=True)
-def GridSurfaceDensity(f, x, h, center, size, res=100, box_size=-1, parallel=True, conservative=False):
+# @njit  # (parallel=True, fastmath=True)
+def GridSurfaceDensity(f, x, h, center, size, res=128, box_size=-1, parallel=True, conservative=False):
     """
     Computes the surface density of conserved quantity f colocated at positions
     x with smoothing lengths h. E.g. plugging in particle masses would return
@@ -148,46 +126,93 @@ def GridSurfaceDensity(f, x, h, center, size, res=100, box_size=-1, parallel=Tru
         Whether to do a a perfectly-conservative deposition to the grid (default False)
     """
 
-    if parallel:
-        Nthreads = get_num_threads()
-        # chunk the particles among the threads
-        sigmas = np.empty((Nthreads, res, res))  # will store separate grids and sum them at the end
-
-        f, x, h = np.array_split(f, Nthreads, 0), np.array_split(x, Nthreads, 0), np.array_split(h, Nthreads, 0)
-
-        for i in prange(Nthreads):
-            if conservative:
-                sigmas[i] = GridSurfaceDensity_conservative_core(
-                    f[i],
-                    x[i],
-                    h[i],
-                    center,
-                    size,
-                    res,
-                    box_size,
-                )
-            else:
-                sigmas[i] = GridSurfaceDensity_core(
-                    f[i],
-                    x[i],
-                    h[i],
-                    center,
-                    size,
-                    res,
-                    box_size,
-                )
-        return sigmas.sum(0)
+    if conservative:
+        splatting_func = GridSurfaceDensity_conservative_core
     else:
-        if conservative:
-            return GridSurfaceDensity_conservative_core(f, x, h, center, size, res, box_size)
-        else:
-            return GridSurfaceDensity_core(f, x, h, center, size, res, box_size)
+        splatting_func = GridSurfaceDensity_core
+
+    if parallel:
+        return parallelize_generic_splatting_2d(splatting_func, f, x, h, center, size, res, box_size)
+    else:
+        return splatting_func(f, x, h, center, size, res, box_size)
 
 
-@njit(fastmath=True)
-def GridSurfaceDensity_core(f, x, h, center, size, res=100, box_size=-1):
+@njit(parallel=True)
+def parallelize_generic_splatting_3d(splatting_function, f, x, h, center, size, res=128, box_size=-1):
     """
-    Computes the surface density of conserved quantity f colocated at positions x with smoothing lengths h. E.g. plugging in particle masses would return mass surface density. The result is on a Cartesian grid of sightlines, the result being the density of quantity f integrated along those sightlines.
+    Generic driver for performing splatting/deposition operations in parallel by chunking the particle list
+    and summing the end result.
+
+    Parameters
+    ----------
+    splatting_function: function
+        Function that performs the splatting on a subset of particles
+    f: array_like
+        Shape (N,) array of the conserved quantity that you want the surface density of (e.g. particle masses)
+    x: array_like
+        Shape (N,3) array of particle positions
+    h: array_like
+        Shape (N,) array of particle smoothing lengths
+    center: array_like
+        Shape (3,) array containing the coorindates of the center of the map
+    size: float
+        Side-length of the map
+    res: int, optional
+        Resolution of the map
+    """
+
+    Nthreads = get_num_threads()
+    NUM_CHUNKS_PER_THREAD = 1
+    Nchunks = Nthreads * NUM_CHUNKS_PER_THREAD
+    # chunk the particles among the threads
+    splatted_values = np.zeros((res, res, res))  # numba will automatically perform parallel reduction onto this
+    f, x, h = np.array_split(f, Nchunks, 0), np.array_split(x, Nchunks, 0), np.array_split(h, Nchunks, 0)
+    for i in prange(Nchunks):
+        splatted_values += splatting_function(f[i], x[i], h[i], center, size, res, box_size)
+    return splatted_values
+
+
+@njit(parallel=True)
+def parallelize_generic_splatting_2d(splatting_function, f, x, h, center, size, res=128, box_size=-1):
+    """
+    Generic driver for performing splatting/deposition operations in parallel by chunking the particle list
+    and summing the end result.
+
+    Parameters
+    ----------
+    splatting_function: function
+        Function that performs the splatting on a subset of particles
+    f: array_like
+        Shape (N,) array of the conserved quantity that you want the surface density of (e.g. particle masses)
+    x: array_like
+        Shape (N,3) array of particle positions
+    h: array_like
+        Shape (N,) array of particle smoothing lengths
+    center: array_like
+        Shape (3,) or (2,) array containing the coordinates of the center of the map
+    size: float
+        Side-length of the map
+    res: int, optional
+        Resolution of the map
+    """
+
+    Nthreads = get_num_threads()
+    NUM_CHUNKS_PER_THREAD = 1
+    Nchunks = Nthreads * NUM_CHUNKS_PER_THREAD
+    # chunk the particles among the threads
+    splatted_values = np.zeros((res, res))  # numba will automatically perform parallel reduction onto this
+    f, x, h = np.array_split(f, Nchunks, 0), np.array_split(x, Nchunks, 0), np.array_split(h, Nchunks, 0)
+    for i in prange(Nchunks):
+        splatted_values += splatting_function(f[i], x[i], h[i], center, size, res, box_size)
+    return splatted_values
+
+
+@njit(fastmath=True, error_model="numpy")
+def GridSurfaceDensity_core(f, x, h, center, size, res=128, box_size=-1):
+    """
+    Computes the surface density of conserved quantity f colocated at positions x with smoothing lengths h. E.g.
+    plugging in particle masses would return mass surface density. The result is on a Cartesian grid of sightlines,
+    the result being the density of quantity f integrated along those sightlines.
 
     Arguments:
     f - (N,) array of the conserved quantity that you want the surface density of (e.g. particle masses)
@@ -230,7 +255,7 @@ def GridSurfaceDensity_core(f, x, h, center, size, res=100, box_size=-1):
 
 
 @njit(fastmath=True)
-def GridSurfaceDensity_conservative_core(f, x, h, center, size, res=100, box_size=-1):
+def GridSurfaceDensity_conservative_core(f, x, h, center, size, res=128, box_size=-1):
     """
     Computes the surface density of conserved quantity f colocated at positions x with smoothing lengths h.
     E.g. plugging in particle masses would return mass surface density.
@@ -393,7 +418,7 @@ def Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res, box_size=-1):
 
 
 @njit(fastmath=True)
-def GridAverage(f, x, h, center, size, res=100, box_size=-1):
+def GridAverage(f, x, h, center, size, res=128, box_size=-1):
     """
     Computes the number density-weighted average of a function f, integrated along sightlines on a Cartesian grid. ie. integral(n f dz)/integral(n dz) where n is the number density and z is the direction of the sightline.
 
@@ -437,7 +462,7 @@ def GridAverage(f, x, h, center, size, res=100, box_size=-1):
 
 
 @njit(fastmath=True)
-def WeightedGridInterp3D(f, wt, x, h, center, size, res=100, box_size=-1):
+def WeightedGridInterp3D(f, wt, x, h, center, size, res=128, box_size=-1):
     """
     Peforms a weighted grid interpolation of quantity f onto a 3D grid
 
@@ -531,8 +556,15 @@ def WeightedGridInterp3D(f, wt, x, h, center, size, res=100, box_size=-1):
     return result
 
 
+def GridDensity(f, x, h, center, size, res=128, box_size=-1.0, parallel=True):
+    if parallel:
+        return parallelize_generic_splatting_3d(GridDensity_core, f, x, h, center, size, res, box_size)
+    else:
+        return GridDensity_core(f, x, h, center, size, res, box_size)
+
+
 @njit(fastmath=True)
-def GridDensity(f, x, h, center, size, res=100, box_size=-1.0):
+def GridDensity_core(f, x, h, center, size, res=128, box_size=-1.0):
     """
     Estimates the density of the conserved quantity f possessed by each particle (e.g. mass, momentum, energy) on a 3D grid
 
@@ -546,9 +578,8 @@ def GridDensity(f, x, h, center, size, res=100, box_size=-1.0):
     """
     dx = size / (res - 1)
 
-    x3d = (
-        x - center + size / 2 - dx / 2
-    )  # + dx/2 # coordinates in the grid frame, such that the origin is at the corner of the grid
+    # coordinates in the grid frame, such that the origin is at the corner of the grid
+    x3d = x - center + size / 2 - dx / 2
 
     grid = np.zeros((res, res, res))
 
