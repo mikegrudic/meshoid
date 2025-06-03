@@ -165,7 +165,7 @@ def dust_emission_map(
         shape (res,res,num_bands) datacube of dust emission intensity
         in erg/s/cm^2/sr/Hz
     """
-    kappa = dust_abs_opacity(wavelengths_um)
+    kappa = dust_abs_opacity(wavelengths_um, Tdust=Tdust)
     kappa = np.array(len(x_pc) * [kappa])
     j = thermal_emissivity(kappa, Tdust, wavelengths_um)
     m_cgs = m_msun * (constants.M_sun.cgs.value)
