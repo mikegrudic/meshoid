@@ -1,10 +1,10 @@
-from numba import jit
 import numpy as np
 from astropy import constants
 import astropy.units as u
-from ..kernel_density import *
+from .radtransfer import radtransfer
+import os
 
-HERSCHEL_DEFAULT_WAVELENGTHS = np.array([150, 250, 350, 500])
+HERSCHEL_DEFAULT_WAVELENGTHS = np.array([150, 250, 350, 500]) * u.um
 
 
 def dust_abs_opacity(wavelength, Zd=1.0, model="Semenov03", Tdust=None, XH=0.71) -> u.quantity.Quantity:
@@ -22,6 +22,8 @@ def dust_abs_opacity(wavelength, Zd=1.0, model="Semenov03", Tdust=None, XH=0.71)
     model: str, optional
         Which dust model to use: choose from astrodust (Hensley & Draine 2022) or Semenov03 (Semenov et al 2003). Semenov03
         will account for sublimation if supplied with Tdust. If Tdust is an array, will return
+    Tdust: float or array_like, optional
+        Scalar or shape (N,) array of dust temperatures; if array, output will be broadcast to shape (N, num_bands)
 
     Returns
     -------
@@ -31,42 +33,41 @@ def dust_abs_opacity(wavelength, Zd=1.0, model="Semenov03", Tdust=None, XH=0.71)
     """
 
     if isinstance(wavelength, u.quantity.Quantity):
-        wavelength = wavelength.to(u.um)
+        wavelength = wavelength.to(u.um).value
+    if isinstance(Tdust, u.quantity.Quantity):
+        Tdust = Tdust.to(u.K).value
 
-    path0 = os.path.dirname(os.path.abspath(__file__))
+    path0 = os.path.dirname(os.path.abspath(__file__)) + "/opacity_tables/"
     if model.lower() == "astrodust":
-        data = np.loadtxt(path0 + "opacity_tables/hensley_draine_2022_astrodust_opacity.dat")
+        data = np.loadtxt(path0 + "hensley_draine_2022_astrodust_opacity.dat")
         wavelength_grid, kappa_abs_PAH, kappa_abs_astrodust = data[:, :3].T
         kappa_abs = kappa_abs_PAH + kappa_abs_astrodust
         kappa_per_H = np.interp(wavelength, wavelength_grid, kappa_abs)
         return kappa_per_H * (XH / (constants.m_p)).cgs.value * Zd * u.cm**2 / u.g
     elif model.lower() == "semenov03":
-        data = np.loadtxt(path0 + "opacity_tables/semenov2003/Multishell_spheres/1.dat")
+        data = np.loadtxt(path0 + "semenov2003/Multishell_spheres/1.dat")
         if Tdust is None:
             wavelength_grid, kappa_grid = data.T
         else:
-            wavelength_grid = data[:, 0]
-            kappa_grid = np.concatenate(
-                [
-                    np.loadtxt(path0 + f"opacity_tables/semenov2003/Multishell_spheres/{i}.dat")[:, 1]
-                    for i in range(1, 6)
-                ]
+            wavelength_grid = data[::-1, 0]  # note reversal because interp arguments must be sorted
+            kappa_grid = np.array(
+                [np.loadtxt(path0 + f"semenov2003/Multishell_spheres/{i}.dat")[::-1, 1] for i in range(1, 6)]
             )  # Nx5 table of opacities, need to choose based on temperature range
 
         # establish bins for sublimation temperatures of different components at 10^-10 g cm^-3; could extend to density-dependent temps
         Tbin_edges = [0, 160, 275, 425, 680, 1500, np.inf]
         Tbin = np.digitize(Tdust, Tbin_edges)
-        if len(Tdust) == 1:
+        if len(Tdust) == 1:  # only need to lookup for one dust temp
             kappa_grid = kappa_grid[Tbin[0]]
             kappa = np.interp(wavelength, wavelength_grid, kappa_grid)
-        else:  #
+        else:  # need to used Tdust-binned
             kappa = np.zeros((len(Tdust), len(wavelength)))
-            for i in range(len(Tbin_edges) - 1):
-                idx = (Tdust < Tbin_edges[i]) * (Tdust >= Tbin_edges[i + 1])
+            for i in range(len(Tbin_edges) - 2):
+                idx = Tbin == i + 1
                 if not np.any(idx):
                     continue
-                kappa_grid_bin = kappa_grid[i]
-                kappa[idx] = kappa_grid_bin
+                kappa_interp = np.interp(wavelength, wavelength_grid, kappa_grid[i])
+                kappa[idx] = kappa_interp[None, :]
 
         return kappa * Zd * u.cm**2 / u.g
 
@@ -101,10 +102,10 @@ def dust_ext_opacity(wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, X
     return kappa_per_H * (XH / (constants.m_p)).cgs.value * Zd * u.cm**2 / u.g
 
 
-def dust_scattering_opacity(
-    wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, XH=0.71, Zd=1.0
-) -> u.quantity.Quantity:
-    return dust_ext_opacity(wavelength_um, XH, Zd) - dust_abs_opacity(wavelength_um, XH, Zd)
+# def dust_scattering_opacity(
+#     wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, XH=0.71, Zd=1.0
+# ) -> u.quantity.Quantity:
+#     return dust_ext_opacity(wavelength_um, XH, Zd) - dust_abs_opacity(wavelength_um, XH, Zd)
 
 
 def thermal_emissivity(kappa, T, wavelengths_um=HERSCHEL_DEFAULT_WAVELENGTHS):
