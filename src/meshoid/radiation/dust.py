@@ -7,7 +7,7 @@ import os
 HERSCHEL_DEFAULT_WAVELENGTHS = np.array([150, 250, 350, 500]) * u.um
 
 
-def dust_abs_opacity(wavelength, Zd=1.0, model="Semenov03", Tdust=None, XH=0.71) -> u.quantity.Quantity:
+def dust_abs_opacity(wavelength, Zd=1.0, model="Semenov03", Tdust=0, XH=0.71) -> u.quantity.Quantity:
     """
     Returns the dust absorption opacity in cm^2/g at a set of wavelengths
 
@@ -23,7 +23,8 @@ def dust_abs_opacity(wavelength, Zd=1.0, model="Semenov03", Tdust=None, XH=0.71)
         Which dust model to use: choose from astrodust (Hensley & Draine 2022) or Semenov03 (Semenov et al 2003). Semenov03
         will account for sublimation if supplied with Tdust. If Tdust is an array, will return
     Tdust: float or array_like, optional
-        Scalar or shape (N,) array of dust temperatures; if array, output will be broadcast to shape (N, num_bands)
+        Scalar or shape (N,) array of dust temperatures used to determine dust composition; if array, output will be
+        broadcast to shape (N, num_bands). Defaults to 0, which assumes no sublimation has taken place.
 
     Returns
     -------
@@ -57,8 +58,8 @@ def dust_abs_opacity(wavelength, Zd=1.0, model="Semenov03", Tdust=None, XH=0.71)
         # establish bins for sublimation temperatures of different components at 10^-10 g cm^-3; could extend to density-dependent temps
         Tbin_edges = [0, 160, 275, 425, 680, 1500, np.inf]
         Tbin = np.digitize(Tdust, Tbin_edges)
-        if len(Tdust) == 1:  # only need to lookup for one dust temp
-            kappa_grid = kappa_grid[Tbin[0]]
+        if np.isscalar(Tdust):  # only need to lookup for one dust temp
+            kappa_grid = kappa_grid[Tbin]
             kappa = np.interp(wavelength, wavelength_grid, kappa_grid)
         else:  # need to used Tdust-binned
             kappa = np.zeros((len(Tdust), len(wavelength)))
@@ -166,7 +167,7 @@ def dust_emission_map(
         in erg/s/cm^2/sr/Hz
     """
     kappa = dust_abs_opacity(wavelengths_um, Tdust=Tdust)
-    kappa = np.array(len(x_pc) * [kappa])
+    # kappa = np.array(len(x_pc) * [kappa])
     j = thermal_emissivity(kappa, Tdust, wavelengths_um)
     m_cgs = m_msun * (constants.M_sun.cgs.value)
     pc_to_cm = constants.pc.cgs.value
