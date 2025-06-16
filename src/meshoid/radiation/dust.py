@@ -48,7 +48,7 @@ def dust_abs_opacity(wavelength, Zd=1.0, model="Semenov03", Tdust=0, XH=0.71) ->
     elif model.lower() == "semenov03":
         data = np.loadtxt(path0 + "semenov2003/Multishell_spheres/1.dat")
         if Tdust is None:
-            wavelength_grid, kappa_grid = data.T
+            wavelength_grid, kappa_grid = data[::-1].T
         else:
             wavelength_grid = data[::-1, 0]  # note reversal because interp arguments must be sorted
             kappa_grid = np.array(
@@ -58,8 +58,11 @@ def dust_abs_opacity(wavelength, Zd=1.0, model="Semenov03", Tdust=0, XH=0.71) ->
         # establish bins for sublimation temperatures of different components at 10^-10 g cm^-3; could extend to density-dependent temps
         Tbin_edges = [0, 160, 275, 425, 680, 1500, np.inf]
         Tbin = np.digitize(Tdust, Tbin_edges)
-        if np.isscalar(Tdust):  # only need to lookup for one dust temp
-            kappa_grid = kappa_grid[Tbin]
+
+        if Tdust is None:
+            kappa = np.interp(wavelength, wavelength_grid, kappa_grid)
+        elif np.isscalar(Tdust):  # only need to lookup for one dust temp
+            kappa_grid = kappa_grid[Tbin - 1]
             kappa = np.interp(wavelength, wavelength_grid, kappa_grid)
         else:  # need to used Tdust-binned
             kappa = np.zeros((len(Tdust), len(wavelength)))
@@ -69,7 +72,6 @@ def dust_abs_opacity(wavelength, Zd=1.0, model="Semenov03", Tdust=0, XH=0.71) ->
                     continue
                 kappa_interp = np.interp(wavelength, wavelength_grid, kappa_grid[i])
                 kappa[idx] = kappa_interp[None, :]
-
         return kappa * Zd * u.cm**2 / u.g
 
     else:
