@@ -309,9 +309,9 @@ class Meshoid:
         """
         dv = self.D(v[self.particle_mask])
         return np.c_[
-            dv[:, 1, 2] - dv[:, 2, 1],
+            dv[:, 2, 1] - dv[:, 1, 2],
             dv[:, 0, 2] - dv[:, 2, 0],
-            dv[:, 0, 1] - dv[:, 1, 0],
+            dv[:, 1, 0] - dv[:, 0, 1],
         ]
 
     def Div(self, v):
