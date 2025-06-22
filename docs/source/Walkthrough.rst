@@ -33,6 +33,57 @@ density cut at n_H ~ .1 cm^-3 to narrow it down to just the ISM.
     fields_to_load = "Masses", "Coordinates", "SmoothingLength", "Velocities", "Density"
     pdata = {field: load_from_snapshot(field, 0, ".", snapnum, particle_mask=np.arange(len(rho))[density_cut]) for field in fields_to_load}
 
+
+::
+
+
+    ---------------------------------------------------------------------------
+
+    KeyboardInterrupt                         Traceback (most recent call last)
+
+    Cell In[2], line 15
+         13 pdata = {}
+         14 fields_to_load = "Masses", "Coordinates", "SmoothingLength", "Velocities", "Density"
+    ---> 15 pdata = {field: load_from_snapshot(field, 0, ".", snapnum, particle_mask=np.arange(len(rho))[density_cut]) for field in fields_to_load}
+
+
+    Cell In[2], line 15, in <dictcomp>(.0)
+         13 pdata = {}
+         14 fields_to_load = "Masses", "Coordinates", "SmoothingLength", "Velocities", "Density"
+    ---> 15 pdata = {field: load_from_snapshot(field, 0, ".", snapnum, particle_mask=np.arange(len(rho))[density_cut]) for field in fields_to_load}
+
+
+    File ~/code/meshoid/examples/load_from_snapshot.py:187, in load_from_snapshot(value, ptype, sdir, snum, particle_mask, axis_mask, units_to_physical, four_char, snapshot_name, snapdir_name, extension)
+        185     q_t = numpy.array(file['PartType'+str(ptype)+'/'+value+'/']).take(axis_mask,axis=1)
+        186 else:
+    --> 187     q_t = numpy.array(file['PartType'+str(ptype)+'/'+value+'/'])                    
+        188 # check data has non-zero size
+        189 if(q_t.size > 0): 
+        190     # if this is the first time we are actually reading it, parse it and determine the shape of the vector, to build the data container
+
+
+    File h5py/_objects.pyx:54, in h5py._objects.with_phil.wrapper()
+
+
+    File h5py/_objects.pyx:55, in h5py._objects.with_phil.wrapper()
+
+
+    File ~/python_work/lib/python3.11/site-packages/h5py/_hl/dataset.py:1112, in Dataset.__array__(self, dtype, copy)
+       1109 if self.size == 0:
+       1110     return arr
+    -> 1112 self.read_direct(arr)
+       1113 return arr
+
+
+    File ~/python_work/lib/python3.11/site-packages/h5py/_hl/dataset.py:1068, in Dataset.read_direct(self, dest, source_sel, dest_sel)
+       1065     dest_sel = sel.select(dest.shape, dest_sel)
+       1067 for mspace in dest_sel.broadcast(source_sel.array_shape):
+    -> 1068     self.id.read(mspace, fspace, dest, dxpl=self._dxpl)
+
+
+    KeyboardInterrupt: 
+
+
 Finally, before getting to the meshoid stuff we will also center the
 coordinates, perform a cut in galactocentric radius at 40kpc, and orient
 our coordinates to the principal axes of the gas distribution.
@@ -59,7 +110,7 @@ our coordinates to the principal axes of the gas distribution.
     pos = pos @ coordinate_basis # dot product with each basis vector to get coordinates in new basis
 
 Projections
-===========
+-----------
 
 OK, now let’s start by making a map of gas surface density. We can do so
 by generating a Meshoid object from the particle masses, coordinates,
@@ -141,7 +192,7 @@ nearest-neighbor reconstruction is probably most appropriate.
 
 
 Simple Radiative Transfer
-=========================
+-------------------------
 
 Meshoid is also capable of performing radiative transfer with a known
 emissivity/source function and opacity, neglecting scattering. This is
@@ -202,7 +253,7 @@ in the V-band.
 
 
 Differential Operators
-======================
+----------------------
 
 Now let’s play around with Meshoid’s numerical differentiation. Meshoid
 can take both first (Meshoid.D) and second derivatives (Meshoid.D2) on
@@ -280,19 +331,4 @@ a slice.
 
 
 .. image:: MeshoidTest_files/MeshoidTest_15_0.png
-
-
-.. code:: ipython3
-
-    M.particle_mask
-
-
-
-
-.. parsed-literal::
-
-    array([      0,       1,       2, ..., 2378700, 2378701, 2378702],
-          shape=(2378703,))
-
-
 
