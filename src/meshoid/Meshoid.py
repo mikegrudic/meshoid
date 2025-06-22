@@ -419,10 +419,10 @@ class Meshoid:
         dx = target_points - self.pos.take(target_neighbors, axis=0)
         if self.boxsize is not None:
             dx = nearest_image_v(dx, self.boxsize)
-        if not np.array_equal(self.particle_mask, unique_neighbors):
-            self.particle_mask = unique_neighbors
-            self.TreeUpdate()  # update neighbor lists to just the target neighbors
-            self.reset_dweights()  # reset derivative weights if already computed
+        #        if not np.array_equal(self.particle_mask, unique_neighbors):
+        # self.particle_mask = unique_neighbors
+        # self.TreeUpdate()  # update neighbor lists to just the target neighbors
+        # self.reset_dweights()  # reset derivative weights if already computed
         gradf_neighbors = self.D(f, order=order).take(neighbor_idx, axis=0)
         f_target += np.einsum("ij,i...j->i...", dx, gradf_neighbors)
         if order == 1:
