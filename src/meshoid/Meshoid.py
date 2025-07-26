@@ -154,7 +154,9 @@ class Meshoid:
 
         if self.verbose:
             print("Finding neighbors...")
-        self.ngbdist, self.ngb = self.tree.query(self.pos[self.particle_mask], self.des_ngb, workers=self.n_jobs)
+        self.ngbdist, self.ngb = self.tree.query(
+            self.pos[self.particle_mask], round(self.des_ngb * 1.1), workers=self.n_jobs
+        )
 
         if self.verbose:
             print("Neighbours found!")
@@ -162,7 +164,7 @@ class Meshoid:
         if self.verbose:
             print("Iterating for smoothing lengths...")
 
-        self.kernel_radius = HsmlIter(self.ngbdist, error_norm=1e-13, dim=self.dim)
+        self.kernel_radius = HsmlIter(self.ngbdist, des_ngb=self.des_ngb, error_norm=1e-13, dim=self.dim)
         if self.verbose:
             print("Smoothing lengths found!")
 
