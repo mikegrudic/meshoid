@@ -38,14 +38,15 @@ def particle_glass(N: int = 64**3, L: float = 1.0, dim: int = 3, tol: float = 1e
     coords: ndarray
         Shape (N,dim) array of coordinate positions of the particle glass arrangement
     """
-    x = np.load(os.path.dirname(os.path.abspath(__file__)) + "/glass_64.npy")
-    while len(x) < N:
-        x = tesselate_glass_coords(x)
-    dist = x.max(axis=1)
-    if N < len(x):
-        x = x[dist.argsort()][:N]  # sort by manhattan distance and take first N
-        x /= x.max() / (1 - 1e-15)
-        x = x % 1.0
+    # x = np.load(os.path.dirname(os.path.abspath(__file__)) + "/glass_64.npy")
+    # while len(x) < N:
+    #     x = tesselate_glass_coords(x)
+    # dist = x.max(axis=1)
+    # if N < len(x):
+    #     x = x[dist.argsort()][:N]  # sort by manhattan distance and take first N
+    #     x /= x.max() / (1 - 1e-15)
+    #     x = x % 1.0
+    x = np.random.rand(N, dim)
     relax_particles(x, tol)
     return x * L
 
