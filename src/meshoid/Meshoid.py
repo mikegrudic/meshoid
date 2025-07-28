@@ -408,6 +408,8 @@ class Meshoid:
         """
         if self.tree is None:
             self.BuildTree()
+        if order < 0 or order > 2:
+            raise NotImplementedError("Reconstruction of order > 2 not supported.")
         # get nearest neighbor of each target point
         target_neighbors = self.tree.query(target_points, workers=self.n_jobs)[1]
         unique_neighbors, neighbor_idx = np.unique(target_neighbors, return_inverse=True)
@@ -448,7 +450,7 @@ class Meshoid:
         plane="z",
         center=None,
         res: int = 128,
-        order: int = 1,
+        order: int = 0,
         return_grid: bool = False,
     ):
         """
