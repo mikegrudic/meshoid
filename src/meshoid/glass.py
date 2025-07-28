@@ -42,10 +42,10 @@ def particle_glass(N: int = 64**3, L: float = 1.0, dim: int = 3, tol: float = 1e
     while len(x) < N:
         x = tesselate_glass_coords(x)
     dist = x.max(axis=1)
-    x = x[dist.argsort()][:N]  # sort by manhattan distance and take first N
-    x /= x.max() / (1 - 1e-15)
-    x = x % 1.0
-    #    x = np.random.rand(N, dim)
+    if N < len(x):
+        x = x[dist.argsort()][:N]  # sort by manhattan distance and take first N
+        x /= x.max() / (1 - 1e-15)
+        x = x % 1.0
     relax_particles(x, tol)
     return x * L
 
