@@ -3,7 +3,10 @@ API Documentation
 
 .. automodule:: meshoid.Meshoid
     :members:
-
+       
+.. automodule:: meshoid.particle_glass
+    :members:
+       
 .. automodule:: meshoid.kernel_density
     :members:
 
