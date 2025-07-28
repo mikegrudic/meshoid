@@ -87,8 +87,8 @@ class Meshoid:
             self.L = self.boxsize
 
         if m is None:
-            # assume unit masses so that density is just particle number density
-            m = np.repeat(1.0, self.N)
+            # assume unit total mass
+            m = np.repeat(1.0 / self.N, self.N)
         self.m = m[self.particle_mask]
 
         self.ngb = None
