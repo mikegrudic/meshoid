@@ -155,7 +155,7 @@ class Meshoid:
         if self.verbose:
             print("Finding neighbors...")
         self.ngbdist, self.ngb = self.tree.query(
-            self.pos[self.particle_mask], round(self.des_ngb * 1.1), workers=self.n_jobs
+            self.pos[self.particle_mask], round(self.des_ngb * 1.5), workers=self.n_jobs
         )
 
         if self.verbose:
