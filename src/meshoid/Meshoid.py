@@ -411,8 +411,8 @@ class Meshoid:
         if order < 0 or order > 2:
             raise NotImplementedError("Reconstruction of order > 2 not supported.")
         # get nearest neighbor of each target point
-        target_neighbors = self.tree.query(target_points, workers=self.n_jobs)[1]
-        unique_neighbors, neighbor_idx = np.unique(target_neighbors, return_inverse=True)
+        _, target_neighbors = self.tree.query(target_points, workers=self.n_jobs)
+        #        unique_neighbors, neighbor_idx = np.unique(target_neighbors, return_inverse=True)
 
         # get value of f at each nearest neighbor
         f_target = np.take(f, target_neighbors, axis=0)
@@ -427,13 +427,13 @@ class Meshoid:
         # self.particle_mask = unique_neighbors
         # self.TreeUpdate()  # update neighbor lists to just the target neighbors
         # self.reset_dweights()  # reset derivative weights if already computed
-        gradf_neighbors = self.D(f, order=order).take(neighbor_idx, axis=0)
+        gradf_neighbors = self.D(f, order=order).take(target_neighbors, axis=0)
         f_target += np.einsum("ij,i...j->i...", dx, gradf_neighbors)
         if order == 1:
             return f_target
 
         # 2nd order reconstruction
-        d2f_neighbors = self.D2(f).take(neighbor_idx, axis=0)
+        d2f_neighbors = self.D2(f).take(target_neighbors, axis=0)
         f_target += 0.5 * np.einsum("ij,ij...->i...", dx * dx, d2f_neighbors[..., :3])  # pure 2nd derivative terms
         for dim in range(self.dim):
             f_target += np.einsum(
