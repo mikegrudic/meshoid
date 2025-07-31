@@ -410,6 +410,13 @@ class Meshoid:
             self.BuildTree()
         if order < 0 or order > 2:
             raise NotImplementedError("Reconstruction of order > 2 not supported.")
+
+        if order == 1:
+            if self.dweights is None:
+                self.ComputeDWeights(1)
+        elif order == 2:
+            if self.d2weights is None:
+                self.ComputeDWeights(2)
         # get nearest neighbor of each target point
         _, target_neighbors = self.tree.query(target_points, workers=self.n_jobs)
         #        unique_neighbors, neighbor_idx = np.unique(target_neighbors, return_inverse=True)
