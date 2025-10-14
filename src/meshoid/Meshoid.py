@@ -2,7 +2,7 @@
 # "It's not a mesh; it's a meshoid!" - Alfred H. Einstimes
 
 import numpy as np
-from scipy.spatial import cKDTree
+from scipy.spatial import KDTree
 from numba import jit, vectorize, float32, float64, njit, guvectorize
 from .grid_deposition import *
 from .kernel_density import *
@@ -14,7 +14,7 @@ class Meshoid:
 
     def __init__(
         self,
-        pos,
+        pos: np.ndarray,
         m=None,
         kernel_radius=None,
         des_ngb=None,
@@ -104,6 +104,10 @@ class Meshoid:
             self.vol = self.volnorm * self.kernel_radius**self.dim / self.des_ngb
             self.density = self.m / self.vol
 
+    def printv(self, *a, **k):
+        if self.verbose:
+            print(*a, **k)
+
     def reset_dweights(self):
         self.dweights = self.d2weights = self.dweights_3rdorder = None
 
@@ -118,8 +122,8 @@ class Meshoid:
         weighted: boolean, optional
             whether to kernel-weight the least-squares gradient solutions (default: True)
         """
-        if self.verbose:
-            print(f"Computing weights for derivatives of order {order}...")
+
+        self.printv(f"Computing weights for derivatives of order {order}...")
 
         weights = gradient_weights(
             self.pos,
@@ -134,15 +138,11 @@ class Meshoid:
         if order == 1:
             self.dweights = weights
         elif order == 2:
-            self.d2weights, self.dweights_3rdorder = (
-                weights[:, self.dim :, :],
-                weights[:, : self.dim, :],
-            )
+            self.d2weights, self.dweights_3rdorder = (weights[:, self.dim :, :], weights[:, : self.dim, :])
 
     def BuildTree(self):
-        if self.verbose:
-            print("Building tree...")
-        self.tree = cKDTree(self.pos, boxsize=self.boxsize)
+        self.printv("Building tree...")
+        self.tree = KDTree(self.pos, boxsize=self.boxsize)
 
     def TreeUpdate(self):
         """
@@ -152,21 +152,18 @@ class Meshoid:
         if self.tree is None:
             self.BuildTree()
 
-        if self.verbose:
-            print("Finding neighbors...")
+        self.printv("Finding neighbors...")
         self.ngbdist, self.ngb = self.tree.query(
             self.pos[self.particle_mask], round(self.des_ngb * 1.5), workers=self.n_jobs
         )
 
-        if self.verbose:
-            print("Neighbours found!")
+        self.printv("Neighbours found!")
 
-        if self.verbose:
-            print("Iterating for smoothing lengths...")
+        self.printv("Iterating for smoothing lengths...")
 
         self.kernel_radius = HsmlIter(self.ngbdist, des_ngb=self.des_ngb, error_norm=1e-13, dim=self.dim)
-        if self.verbose:
-            print("Smoothing lengths found!")
+
+        self.printv("Smoothing lengths found!")
 
         self.density = self.des_ngb * self.m[self.particle_mask] / (self.volnorm * self.kernel_radius**self.dim)
         self.vol = self.m[self.particle_mask] / self.density
@@ -310,11 +307,7 @@ class Meshoid:
         shape (N,3) array containing the curl of vector field v
         """
         dv = self.D(v[self.particle_mask])
-        return np.c_[
-            dv[:, 2, 1] - dv[:, 1, 2],
-            dv[:, 0, 2] - dv[:, 2, 0],
-            dv[:, 1, 0] - dv[:, 0, 1],
-        ]
+        return np.c_[dv[:, 2, 1] - dv[:, 1, 2], dv[:, 0, 2] - dv[:, 2, 0], dv[:, 1, 0] - dv[:, 0, 1]]
 
     def Div(self, v):
         """
@@ -427,6 +420,7 @@ class Meshoid:
             return f_target
 
         # 1st-order reconstruction
+        self.printv(target_points, self.pos.take(target_neighbors, axis=0))
         dx = target_points - self.pos.take(target_neighbors, axis=0)
         if self.boxsize is not None:
             dx = nearest_image_v(dx, self.boxsize)
@@ -450,16 +444,7 @@ class Meshoid:
             )  # mixed terms
         return f_target
 
-    def Slice(
-        self,
-        f,
-        size=None,
-        plane="z",
-        center=None,
-        res: int = 128,
-        order: int = 0,
-        return_grid: bool = False,
-    ):
+    def Slice(self, f, size=None, plane="z", center=None, res: int = 128, order: int = 0, return_grid: bool = False):
         """
         Gives the value of a function f deposited on a 2D Cartesian grid slicing
         through the 3D domain.
@@ -512,15 +497,7 @@ class Meshoid:
             return x, y, f_grid.reshape(shape)
         return f_grid.reshape(shape)
 
-    def InterpToGrid(
-        self,
-        f,
-        size=None,
-        center=None,
-        res: int = 128,
-        order: int = 1,
-        return_grid: bool = False,
-    ):
+    def InterpToGrid(self, f, size=None, center=None, res: int = 128, order: int = 1, return_grid: bool = False):
         """
         Interpolates the quantity f defined on the meshoid to the cell centers
         of a 3D Cartesian grid
@@ -752,7 +729,7 @@ class Meshoid:
             bandwidth = self.SmoothingLength()
 
         f = np.zeros_like(grid)
-        gtree = cKDTree(np.c_[grid,])
+        gtree = KDTree(np.c_[grid,])
         for d, bw in zip(self.pos, bandwidth):
             ngb = gtree.query_ball_point(d, bw)
             ngbdist = np.abs(grid[ngb] - d)
