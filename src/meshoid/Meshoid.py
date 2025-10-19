@@ -700,7 +700,7 @@ class Meshoid:
             center = self.center
         if size is None:
             size = self.L
-        return SurfaceDensity(
+        return GridSurfaceDensity(
             f * self.vol,
             self.pos,
             np.clip(smooth_fac * self.kernel_radius, 2 * size / res, 1e100),
