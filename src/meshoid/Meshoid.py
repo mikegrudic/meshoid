@@ -125,7 +125,7 @@ class Meshoid:
 
         self.printv(f"Computing weights for derivatives of order {order}...")
 
-        if not self.ngb:
+        if self.ngb is None:
             self.TreeUpdate()
 
         weights = gradient_weights(
