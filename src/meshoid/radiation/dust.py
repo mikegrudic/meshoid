@@ -2,13 +2,19 @@ import numpy as np
 from astropy import constants
 import astropy.units as u
 from .radtransfer import radtransfer
+from .blackbody import planck_function, planck_function_dT
 import os
 
 HERSCHEL_DEFAULT_WAVELENGTHS = np.array([150, 250, 350, 500]) * u.um
 
 
 def dust_abs_opacity(
-    wavelength, Zd=1.0, model="Semenov03", Tdust=0, XH=0.71, submodel="Multishell_spheres"
+    wavelength,
+    Zd=1.0,
+    model="Semenov03",
+    Tdust=0,
+    hydrogen_massfrac=0.71,
+    submodel="Multishell_spheres",
 ) -> u.quantity.Quantity:
     """
     Returns the dust absorption opacity in cm^2/g at a set of wavelengths
@@ -17,7 +23,7 @@ def dust_abs_opacity(
     ----------
     wavelength_um: array_like
         Shape (num_bands) array-like of wavelengths; if a raw float array, microns are assumed, but will take an astropy quantity.
-    XH: float, optional
+    hydrogen_massfrac: float, optional
         Mass fraction of hydrogen (needed to convert from per H to per g)
     Zd: float, optional
         Dust-to-gas ratio normalized to Solar neighborhood
@@ -49,16 +55,17 @@ def dust_abs_opacity(
         wavelength_grid, kappa_abs_PAH, kappa_abs_astrodust = data[:, :3].T
         kappa_abs = kappa_abs_PAH + kappa_abs_astrodust
         kappa_per_H = np.interp(wavelength, wavelength_grid, kappa_abs)
-        return kappa_per_H * (XH / (constants.m_p)).cgs.value * Zd * u.cm**2 / u.g
+        return kappa_per_H * (hydrogen_massfrac / (constants.m_p)).cgs.value * Zd * u.cm**2 / u.g
     elif model.lower() == "semenov03":
         data = np.loadtxt(path0 + f"semenov2003/{submodel}/1.dat")
         if Tdust is None:
             wavelength_grid, kappa_grid = data[::-1].T
         else:
             wavelength_grid = data[::-1, 0]  # note reversal because interp arguments must be sorted
-            kappa_grid = np.array(
-                [np.loadtxt(path0 + f"semenov2003/{submodel}/{i}.dat")[::-1, 1] for i in range(1, 6)]
-            )  # Nx5 table of opacities, need to choose based on temperature range
+            kappa_grid = [np.loadtxt(path0 + f"semenov2003/{submodel}/{i}.dat")[::-1, 1] for i in range(1, 6)]
+            kappa_grid.append(np.zeros_like(kappa_grid[0]))
+            kappa_grid = np.array(kappa_grid)
+        # Nx5 table of opacities, need to choose based on temperature range
 
         # establish bins for sublimation temperatures of different components at 10^-10 g cm^-3; could extend to density-dependent temps
         Tbin_edges = [0, 160, 275, 425, 680, 1500, np.inf]
@@ -77,15 +84,97 @@ def dust_abs_opacity(
                     continue
                 kappa_interp = np.interp(wavelength, wavelength_grid, kappa_grid[i])
                 kappa[idx] = kappa_interp[None, :]
-        return kappa * Zd * u.cm**2 / u.g
+        kappa *= u.cm**2 / u.g
+        return kappa
 
     else:
         raise NotImplementedError("Specified dust model not implemented.")
-    
-def 
 
 
-def dust_ext_opacity(wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, XH=0.71, Zd=1.0) -> u.quantity.Quantity:
+def dust_mean_opacity(
+    Trad,
+    Tdust,
+    which="planck",
+    Zd=1.0,
+    model="Semenov03",
+    submodel="Multishell_spheres",
+    hydrogen_massfrac=0.71,
+    num_wavelengths=10**4,
+):
+    """
+    Returns the mean absorption opacity in cm^2/g at a set of radiation and dust temperatures
+
+    Parameters
+    ----------
+    Trad: float or array_like
+        Scalar or shape (N,) array of radiation temepratures; if array, output will be broadcast to shape (N, num_bands).
+    Tdust: float or array_like
+        Scalar or shape (N,) array of dust temperatures used to determine dust composition. Should match Trad or
+        be broadcast to it.
+    which: string, optional
+        Which mean to compute out of 'planck' (rosseland to be implemented)
+    Zd: float, optional
+        Dust-to-gas ratio normalized to Solar neighborhood value (default 1.)
+    hydrogen_massfrac: float, optional
+        Mass fraction of hydrogen (needed to convert from per H to per g) (default 0.71)
+    model: str, optional
+        Which dust model to use: choose from 'astrodust' (Hensley & Draine 2022) or 'Semenov03' (Semenov et al 2003).
+        Semenov03 will account for sublimation of volatiles if supplied with Tdust.
+    submodel: string, optional
+        When specifying Semenov03 model, choose between Comp_aggregates, Comp_spheres, Hom_aggregates, Hom_spheres,
+        Multishell_spheres, Porous_comp_spheres, Porous_multishell_spheres
+
+    Returns
+    -------
+    kappa: array_like
+
+    """
+
+    Trad = np.atleast_1d(np.float64(Trad))
+    Tdust = np.atleast_1d(np.float64(Tdust))
+    if len(Tdust) == 1:
+        Tdust = np.repeat(Tdust, len(Trad))
+
+    if len(Tdust) > 1 and len(Tdust) != len(Trad):
+        raise ValueError("Tdust could not be broadcast to Trad")
+
+    wavelength_grid = np.logspace(4, -1, num_wavelengths)
+
+    # temperature regions for dust opacity - must do these separately
+    Tbin_edges = [0, 160, 275, 425, 680, 1500, np.inf]
+    Tbin = np.clip(np.digitize(Tdust, Tbin_edges) - 1, 0, len(Tbin_edges) + 1)
+    kappa_mean = np.empty_like(Trad)
+
+    for bin in np.unique(Tbin):
+        idx = Tbin == bin
+        monochrome_opacity = dust_abs_opacity(
+            wavelength_grid, Zd, model, Tdust[idx][0], hydrogen_massfrac, submodel
+        ).value
+        freq = (constants.c / (wavelength_grid * u.um)).to(u.Hz)  # .value
+        if which == "planck":
+
+            def mean(T):
+                return np.trapezoid(planck_function(freq, T) * monochrome_opacity, freq) / np.trapezoid(
+                    planck_function(freq, T), freq
+                )
+        elif which == "rosseland":
+
+            def mean(T):
+                #                print(planck_function_dT(freq, T))
+                return (
+                    np.trapezoid(planck_function_dT(freq, T) / monochrome_opacity, freq)
+                    / np.trapezoid(planck_function_dT(freq, T), freq)
+                ) ** -1.0
+        else:
+            raise NotImplementedError(f"Opacity mean {which} not implemented.")
+
+        kappa_mean[idx] = np.array([mean(T) for T in Trad[idx]])
+    return kappa_mean
+
+
+def dust_ext_opacity(
+    wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, hydrogen_massfrac=0.71, Zd=1.0
+) -> u.quantity.Quantity:
     """
     Returns the dust extinction opacity in cm^2/g at a set of wavelengths
     in micron
@@ -94,7 +183,7 @@ def dust_ext_opacity(wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, X
     ----------
     wavelength_um: array_like
         Shape (num_bands) array of wavelengths in micron
-    XH: float, optional
+    hydrogen_massfrac: float, optional
         Mass fraction of hydrogen (needed to convert from per H to per g)
     Zd: float, optional
         Dust-to-gas ratio normalized to Solar neighborhood
@@ -109,7 +198,7 @@ def dust_ext_opacity(wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, X
     )
     wavelength_grid, kappa_ext = data[:, 0], data[:, -2]
     kappa_per_H = np.interp(wavelength_um, wavelength_grid, kappa_ext)
-    return kappa_per_H * (XH / (constants.m_p)).cgs.value * Zd * u.cm**2 / u.g
+    return kappa_per_H * (hydrogen_massfrac / (constants.m_p)).cgs.value * Zd * u.cm**2 / u.g
 
 
 def thermal_emissivity(kappa, T, wavelengths_um=HERSCHEL_DEFAULT_WAVELENGTHS):
