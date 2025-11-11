@@ -8,7 +8,10 @@ colors = plt.get_cmap("inferno")(np.linspace(0, 0.8, len(Tdust_vals)))
 
 for i, Td in enumerate(Tdust_vals):
     kappa = dust_mean_opacity(Trad, Td)
+    fit = np.polyfit(np.log10(Trad[Trad < 1e3]), np.log10(kappa[Trad < 1e3]), 6)
     plt.loglog(Trad, kappa, label=r"$T_{\rm dust}=%g\rm K$" % Td, color=colors[i])
+    kappa_fit = 10 ** np.polyval(fit, np.log10(Trad))
+    plt.loglog(Trad[::2000], kappa[::2000], color=colors[i], ls="dashed")
 
 kappa_LTE = dust_mean_opacity(Trad, Trad)
 kappa_LTE[kappa_LTE == 0] = np.nan
@@ -22,7 +25,6 @@ plt.clf()
 Trad = np.logspace(1, 4, 10**4)
 for i, Td in enumerate(Tdust_vals):
     kappa = dust_mean_opacity(Trad, Td, which="rosseland")
-    print(kappa)
     plt.loglog(Trad, kappa, label=r"$T_{\rm dust}=%g\rm K$" % Td, color=colors[i])
 
 kappa_LTE = dust_mean_opacity(Trad, Trad, which="rosseland")

@@ -1,3 +1,3 @@
 from .radtransfer import *
-from .modified_blackbody import *
+from .blackbody import *
 from .dust import *
