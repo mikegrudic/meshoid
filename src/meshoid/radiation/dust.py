@@ -62,17 +62,17 @@ def dust_abs_opacity(
 
         # establish bins for sublimation temperatures of different components at 10^-10 g cm^-3; could extend to density-dependent temps
         Tbin_edges = [0, 160, 275, 425, 680, 1500, np.inf]
-        Tbin = np.digitize(Tdust, Tbin_edges) - 1
+        Tbin = np.clip(np.digitize(Tdust, Tbin_edges) - 1, 0, len(Tbin_edges) + 1)
 
         if Tdust is None:
             kappa = np.interp(wavelength, wavelength_grid, kappa_grid)
         elif np.isscalar(Tdust):  # only need to lookup for one dust temp
-            kappa_grid = kappa_grid[Tbin - 1]
+            kappa_grid = kappa_grid[Tbin]
             kappa = np.interp(wavelength, wavelength_grid, kappa_grid)
         else:  # need to used Tdust-binned
             kappa = np.zeros((len(Tdust), len(wavelength)))
-            for i in range(len(Tbin_edges) - 2):
-                idx = Tbin == i + 1
+            for i in range(len(Tbin_edges) - 1):
+                idx = Tbin == i
                 if not np.any(idx):
                     continue
                 kappa_interp = np.interp(wavelength, wavelength_grid, kappa_grid[i])
