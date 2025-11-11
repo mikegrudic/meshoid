@@ -7,7 +7,9 @@ import os
 HERSCHEL_DEFAULT_WAVELENGTHS = np.array([150, 250, 350, 500]) * u.um
 
 
-def dust_abs_opacity(wavelength, Zd=1.0, model="Semenov03", Tdust=0, XH=0.71) -> u.quantity.Quantity:
+def dust_abs_opacity(
+    wavelength, Zd=1.0, model="Semenov03", Tdust=0, XH=0.71, submodel="Multishell_spheres"
+) -> u.quantity.Quantity:
     """
     Returns the dust absorption opacity in cm^2/g at a set of wavelengths
 
@@ -25,6 +27,9 @@ def dust_abs_opacity(wavelength, Zd=1.0, model="Semenov03", Tdust=0, XH=0.71) ->
     Tdust: float or array_like, optional
         Scalar or shape (N,) array of dust temperatures used to determine dust composition; if array, output will be
         broadcast to shape (N, num_bands). Defaults to 0, which assumes no sublimation has taken place.
+    submodel: string, optional
+        When specifying Semenov03 model, choose between Comp_aggregates, Comp_spheres, Hom_aggregates, Hom_spheres,
+        Multishell_spheres, Porous_comp_spheres, Porous_multishell_spheres
 
     Returns
     -------
@@ -46,18 +51,18 @@ def dust_abs_opacity(wavelength, Zd=1.0, model="Semenov03", Tdust=0, XH=0.71) ->
         kappa_per_H = np.interp(wavelength, wavelength_grid, kappa_abs)
         return kappa_per_H * (XH / (constants.m_p)).cgs.value * Zd * u.cm**2 / u.g
     elif model.lower() == "semenov03":
-        data = np.loadtxt(path0 + "semenov2003/Multishell_spheres/1.dat")
+        data = np.loadtxt(path0 + f"semenov2003/{submodel}/1.dat")
         if Tdust is None:
             wavelength_grid, kappa_grid = data[::-1].T
         else:
             wavelength_grid = data[::-1, 0]  # note reversal because interp arguments must be sorted
             kappa_grid = np.array(
-                [np.loadtxt(path0 + f"semenov2003/Multishell_spheres/{i}.dat")[::-1, 1] for i in range(1, 6)]
+                [np.loadtxt(path0 + f"semenov2003/{submodel}/{i}.dat")[::-1, 1] for i in range(1, 6)]
             )  # Nx5 table of opacities, need to choose based on temperature range
 
         # establish bins for sublimation temperatures of different components at 10^-10 g cm^-3; could extend to density-dependent temps
         Tbin_edges = [0, 160, 275, 425, 680, 1500, np.inf]
-        Tbin = np.digitize(Tdust, Tbin_edges)
+        Tbin = np.digitize(Tdust, Tbin_edges) - 1
 
         if Tdust is None:
             kappa = np.interp(wavelength, wavelength_grid, kappa_grid)
