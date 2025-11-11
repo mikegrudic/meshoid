@@ -81,6 +81,8 @@ def dust_abs_opacity(
 
     else:
         raise NotImplementedError("Specified dust model not implemented.")
+    
+def 
 
 
 def dust_ext_opacity(wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, XH=0.71, Zd=1.0) -> u.quantity.Quantity:
@@ -108,12 +110,6 @@ def dust_ext_opacity(wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, X
     wavelength_grid, kappa_ext = data[:, 0], data[:, -2]
     kappa_per_H = np.interp(wavelength_um, wavelength_grid, kappa_ext)
     return kappa_per_H * (XH / (constants.m_p)).cgs.value * Zd * u.cm**2 / u.g
-
-
-# def dust_scattering_opacity(
-#     wavelength_um: np.ndarray = HERSCHEL_DEFAULT_WAVELENGTHS, XH=0.71, Zd=1.0
-# ) -> u.quantity.Quantity:
-#     return dust_ext_opacity(wavelength_um, XH, Zd) - dust_abs_opacity(wavelength_um, XH, Zd)
 
 
 def thermal_emissivity(kappa, T, wavelengths_um=HERSCHEL_DEFAULT_WAVELENGTHS):
