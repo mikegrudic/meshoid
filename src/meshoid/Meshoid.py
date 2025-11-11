@@ -3,7 +3,6 @@
 
 import numpy as np
 from scipy.spatial import KDTree
-from numba import jit, vectorize, float32, float64, njit, guvectorize
 from .grid_deposition import *
 from .kernel_density import *
 from .derivatives import *
@@ -583,32 +582,21 @@ class Meshoid:
 
         return f_grid
 
-    def SurfaceDensity(
-        self,
-        f=None,
-        size=None,
-        # plane="z",
-        center=None,
-        res=128,
-        smooth_fac=1.0,
-        conservative=False,
-    ):
+    def SurfaceDensity(self, f=None, size=None, center=None, res=128, smooth_fac=1.0, conservative=False):
         """
         Computes the surface density of a quantity f defined on the meshoid on a grid of sightlines. e.g. if f is the particle masses, you will get mass surface density.
 
         Parameters
         ----------
-        f :
+        f: array_like, optional
             the quantity you want the surface density of (default: particle mass)
-        size :
+        size: float, optional
             the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
-        plane :
-            the direction you want to project along, of x, y, or z (default: 'z')
-        center :
+        center: array_like, optional
             (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
-        res :
+        res: int, optional
             the resolution of the grid of sightlines (default: 128)
-        smooth_fac :
+        smooth_fac: float, optional
             smoothing lengths are increased by this factor (default: 1.)
 
         Returns
@@ -633,23 +621,64 @@ class Meshoid:
             conservative=conservative,
         )
 
+    def MassWeightedAverage(self, f, masses=None, size=None, center=None, res=128, smooth_fac=1.0, conservative=False):
+        """
+        Computes the surface density of a quantity f defined on the meshoid on a grid of sightlines. e.g. if f is the particle masses, you will get mass surface density.
+
+        Parameters
+        ----------
+        f: array_like
+            The quantity you want the mass-weighted average of
+        masses: array_like, optional
+            Shape (N,) array of masses, or in general arbitrary weights
+        size: float, optional
+            the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
+        center: array_like, optional
+            (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
+        res: int, optional
+            the resolution of the grid of sightlines (default: 128)
+        smooth_fac: float, optional
+            smoothing lengths are increased by this factor (default: 1.)
+
+        Returns
+        -------
+        (res,res) array containing the column densities integrated along sightlines
+        """
+        if f is None:
+            f = self.m
+        if center is None:
+            center = self.center
+        if size is None:
+            size = self.L
+
+        args = (
+            self.pos,
+            np.clip(smooth_fac * self.kernel_radius, 2 * size / res, 1e100),
+            center,
+            size,
+            res,
+            self.boxsize,
+            (False if self.n_jobs == 1 else True),
+            conservative,
+        )
+
+        return GridSurfaceDensity(f * masses, *args) / GridSurfaceDensity(masses, *args)
+
     def ProjectedAverage(self, f, size=None, center=None, res=128, smooth_fac=1.0):  # plane="z",
         """
         Computes the average value of a quantity f along a Cartesian grid of sightlines from +/- infinity.
 
         Parameters
         ----------
-        f :
+        f: array_like, optional
             (N,) array containing the quantity you want the average of
-        size :
+        size: float, optional
             the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
-        plane :
-            the direction you want to project along, of x, y, or z (default: 'z')
-        center :
+        center: array_like, optional
             (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
-        res :
+        res: int, optional
             the resolution of the grid of sightlines (default: 128)
-        smooth_fac :
+        smooth_fac: float, optional
             smoothing lengths are increased by this factor (default: 1.)
 
         Returns
@@ -670,7 +699,7 @@ class Meshoid:
             self.boxsize,
         )
 
-    def Projection(self, f, size=None, center=None, res=128, smooth_fac=1.0):  # plane="z",
+    def Projection(self, f, size=None, center=None, res=128, smooth_fac=1.0):
         """
         Computes the integral of quantity f along a Cartesian grid of sightlines
         from +/- infinity. e.g. plugging in 3D density for f will return
@@ -678,18 +707,15 @@ class Meshoid:
 
         Parameters
         ----------
-        f :
-            (N,) array containing the quantity you want the projected integral of
-        size :
+        f: array_like, optional
+            (N,) array containing the quantity you want the average of
+        size: float, optional
             the side length of the window of sightlines (default: None, will use the meshoid's predefined side length')
-        plane :
-            the direction you want to project along, of x, y, or z (default: 'z')
-        center :
-            (2,) or (3,) array containing the coordaintes of the center of the
-            grid (default: None, will use the meshoid's predefined center)
-        res :
+        center: array_like, optional
+            (2,) or (3,) array containing the coordaintes of the center of the grid (default: None, will use the meshoid's predefined center)
+        res: int, optional
             the resolution of the grid of sightlines (default: 128)
-        smooth_fac :
+        smooth_fac: float, optional
             smoothing lengths are increased by this factor (default: 1.)
 
         Returns
