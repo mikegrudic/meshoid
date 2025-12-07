@@ -3,7 +3,7 @@
 import numpy as np
 from .Meshoid import Meshoid
 from scipy.optimize import minimize_scalar
-import os
+from scipy.stats import qmc
 
 
 def tesselate_glass_coords(x):
@@ -19,7 +19,9 @@ def tesselate_glass_coords(x):
     return x
 
 
-def particle_glass(N: int = 64**3, L: float = 1.0, dim: int = 3, tol: float = 1e-2, optimize=False) -> np.ndarray:
+def particle_glass(
+    N: int = 64**3, L: float = 1.0, dim: int = 3, tol: float = 1e-2, optimize=False, sobol=True
+) -> np.ndarray:
     """Returns coordinate positions of particles in a uniform-density glass
 
     Parameters
@@ -46,7 +48,11 @@ def particle_glass(N: int = 64**3, L: float = 1.0, dim: int = 3, tol: float = 1e
     #     x = x[dist.argsort()][:N]  # sort by manhattan distance and take first N
     #     x /= x.max() / (1 - 1e-15)
     #     x = x % 1.0
-    x = np.random.rand(N, dim)
+    if sobol and (N & (N - 1)) == 0:  # checks if we have a power-of-two and can do a sobol sequence for starters
+        sampler = qmc.Sobol(d=3, scramble=False)
+        x = sampler.random_base2(m=int(np.log2(N)))
+    else:
+        x = np.random.rand(N, dim)
     relax_particles(x, tol)
     return x * L
 
