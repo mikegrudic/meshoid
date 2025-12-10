@@ -2,25 +2,8 @@
 
 from numba import njit, prange, vectorize
 import numpy as np
-from .kernel_density import Kernel
-
-
-@njit(fastmath=True)
-def nearest_image(dx_coord, boxsize):
-    """Returns separation vector for nearest image, given the coordinate
-    difference dx_coord and assuming coordinates run from 0 to boxsize"""
-    if np.abs(dx_coord) > boxsize / 2:
-        return -np.copysign(boxsize - np.abs(dx_coord), dx_coord)
-    return dx_coord
-
-
-@vectorize
-def nearest_image_v(dx_coord, boxsize):
-    """Returns separation vector for nearest image, given the coordinate
-    difference dx_coord and assuming coordinates run from 0 to boxsize"""
-    if np.abs(dx_coord) > boxsize / 2:
-        return -np.copysign(boxsize - np.abs(dx_coord), dx_coord)
-    return dx_coord
+from .kernel_density import Kernel_v
+from .periodic import nearest_image
 
 
 @njit(fastmath=True)
@@ -48,7 +31,7 @@ def kernel_dx_and_weights(
                 dx[j, k] = nearest_image(dx[j, k], boxsize)
             r += dx[j, k] * dx[j, k]
         if weighted:
-            weights[j] = Kernel(np.sqrt(r) / kernel_radius)
+            weights[j] = Kernel_v(np.sqrt(r) / kernel_radius)
     return dx, weights
 
 

@@ -1,9 +1,12 @@
-from numba import vectorize, float32, float64, njit, jit, prange, get_num_threads, cfunc
+from numba import vectorize, float32, float64, njit, jit, prange, cfunc
 import numpy as np
+from scipy.integrate import quad
+from .periodic import nearest_image
 
 
 @cfunc("float64(float64)", fastmath=True)
 def kernel(q):
+    """Cubic-spline kernel function"""
     if q <= 0.5:
         return 1 - 6 * q**2 + 6 * q**3
     elif q <= 1.0:
@@ -12,15 +15,82 @@ def kernel(q):
         return 0
 
 
-@njit(fastmath=True, parallel=True)
+kernel_norm = {dim: 1.0 / quad(lambda x: kernel(x) * np.pi * (2 * x) ** (dim - 1), 0, 1)[0] for dim in range(1, 4)}
+kernel_norm[1] *= 0.5
+
+
+@jit(fastmath=True)
+def dkernel(dx, h):
+    """Spatial derivative of cubic spline kernel function"""
+    dim = dx.shape[-1]
+    r = 0
+    for k in range(dim):
+        r += dx[k] * dx[k]
+    r = np.sqrt(r)
+    q = r / h
+    if q == 0 or q >= 1:
+        return np.zeros(dim)
+    # chain rule: dk/dx = dk/dq dq/dr dr/dx
+    if q <= 0.5:
+        dk = -12 * q + 18 * q**2
+    elif q <= 1.0:
+        dk = -6 * (1 - q) ** 2
+    dk /= h
+    result = np.empty(dim)
+    for k in range(dim):
+        result[k] = -dk * dx[k] / r
+    return result
+
+
+@njit(parallel=True, fastmath=True)
+def dkernel_ngb_sum(x, h, ngb, boxsize):
+    """Neighbor sum of spatial derivative of cubic spline kernel function"""
+    N, dim = x.shape
+    result = np.zeros_like(x)
+    dx = np.empty(dim)
+    for i in prange(N):
+        x0, h0 = x[i], h[i]
+        for n in ngb[i]:
+            for k in range(dim):
+                dx[k] = x[n, k] - x0[k]
+                if boxsize is not None:
+                    dx[k] = nearest_image(dx[k], boxsize)
+            dk = dkernel(dx, h0)
+            for k in range(dim):
+                result[i, k] += dk[k]
+    return result
+
+
+@njit(parallel=True, fastmath=True)
+def kernel_gradient(f, x, h, ngb, boxsize):
+    """SPH-style kernel gradient estimator"""
+    N, dim = x.shape
+    result = np.zeros_like(x)
+    dx = np.empty(dim)
+    for i in prange(N):
+        x0, h0 = x[i], h[i]
+        for n in ngb[i]:
+            for k in range(dim):
+                dx[k] = x[n, k] - x0[k]
+                if boxsize is not None:
+                    dx[k] = nearest_image(dx[k], boxsize)
+            dk = dkernel(dx, h0)
+            for k in range(dim):
+                result[i, k] += f[n] * dk[k]
+    return result
+
+
+@jit(fastmath=True, parallel=True)
 def HsmlIter(neighbor_dists, des_ngb, dim=3, error_norm=1e-6):
     """
     Performs the iteration to get smoothing lengths, according to Eq. 26 in Hopkins 2015 MNRAS 450.
 
-    Arguments:
+    Arguments
+    ---------
     neighbor_dists: (N, Nngb) array of distances from particles to their Nngb nearest neighbors
 
-    Keyword arguments:
+    Keyword arguments
+    -----------------
     dim - Dimensionality (default: 3)
     error_norm - Tolerance in the particle number density to stop iterating at (default: 1e-6)
     """
@@ -77,7 +147,7 @@ def kernel3d(q):
 
 
 @vectorize([float32(float32), float64(float64)])
-def Kernel(q):
+def Kernel_v(q):
     """
     Un-normalized cubic-spline kernel function
 

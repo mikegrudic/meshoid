@@ -71,7 +71,9 @@ def grid_dx_from_coordinate(x: float, index: int, grid_length: float, grid_cente
     return dx
 
 
-def GridSurfaceDensityMultigrid(f, x, h, center, size, res=128, box_size=-1, N_grid_kernel=8, parallel=True):
+def GridSurfaceDensityMultigrid(
+    f, x, h, center, size, res=128, box_size=-1, N_grid_kernel=8, parallel=True, conservative=False
+):
     if not ((res != 0) and (res & (res - 1) == 0)):
         raise ("Multigrid resolution must be a power of 2")
     res_bins = size / 2 ** np.arange(0, round(np.log2(res) + 1))
@@ -86,7 +88,15 @@ def GridSurfaceDensityMultigrid(f, x, h, center, size, res=128, box_size=-1, N_g
         idx = (h / N_grid_kernel < res_bins[i]) & (h / N_grid_kernel >= res_bins[i + 1])
         if np.any(idx):
             grid += GridSurfaceDensity(
-                f[idx], x[idx], h[idx], center, size, res=Ni, box_size=box_size, parallel=parallel
+                f[idx],
+                x[idx],
+                h[idx],
+                center,
+                size,
+                res=Ni,
+                box_size=box_size,
+                parallel=parallel,
+                conservative=conservative,
             )
     return grid
 

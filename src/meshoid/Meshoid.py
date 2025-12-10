@@ -117,7 +117,7 @@ class Meshoid:
         Parameters
         ----------
         order: int, optional
-            1 to compute weights for first derivatives, 2 for the Jacobian matrix (default: 1)
+            1 to compute weights for first derivatives, 2 for the Hessian matrix (default: 1)
         weighted: boolean, optional
             whether to kernel-weight the least-squares gradient solutions (default: True)
         """
@@ -174,7 +174,7 @@ class Meshoid:
         if self.ngbdist is None or self.kernel_radius is None:
             self.TreeUpdate()
         q = self.ngbdist / self.kernel_radius[:, None]
-        K = Kernel(q)
+        K = Kernel_v(q)
         return K / np.sum(K, axis=1)[:, None]
 
     def Volume(self):
@@ -270,7 +270,7 @@ class Meshoid:
 
     def D2(self, f, weighted=True):
         """
-        Computes the kernel-weighted least-squares Jacobian estimator of the function f.
+        Computes the kernel-weighted least-squares Hessian estimator of the function f.
 
         Parameters
         ----------
@@ -582,7 +582,9 @@ class Meshoid:
 
         return f_grid
 
-    def SurfaceDensity(self, f=None, size=None, center=None, res=128, smooth_fac=1.0, conservative=False):
+    def SurfaceDensity(
+        self, f=None, size=None, center=None, res=128, smooth_fac=1.0, conservative=False, multigrid=False
+    ):
         """
         Computes the surface density of a quantity f defined on the meshoid on a grid of sightlines. e.g. if f is the particle masses, you will get mass surface density.
 
@@ -609,7 +611,11 @@ class Meshoid:
             center = self.center
         if size is None:
             size = self.L
-        return GridSurfaceDensity(
+        if multigrid:
+            renderer = GridSurfaceDensityMultigrid
+        else:
+            renderer = GridSurfaceDensity
+        return renderer(
             f,
             self.pos,
             np.clip(smooth_fac * self.kernel_radius, 2 * size / res, 1e100),
@@ -762,6 +768,12 @@ class Meshoid:
         for d, bw in zip(self.pos, bandwidth):
             ngb = gtree.query_ball_point(d, bw)
             ngbdist = np.abs(grid[ngb] - d)
-            f[ngb] += Kernel(ngbdist / bw) / bw * 4.0 / 3
+            f[ngb] += Kernel_v(ngbdist / bw) / bw * 4.0 / 3
 
         return f
+
+    def SPH_Density_Gradient(self):
+        return dkernel_ngb_sum(self.pos, self.kernel_radius, self.ngb, self.boxsize) * kernel_norm[self.dim]
+
+    def SPH_gradient(self, f):
+        return kernel_gradient(f, self.pos, self.kernel_radius, self.ngb, self.boxsize)
