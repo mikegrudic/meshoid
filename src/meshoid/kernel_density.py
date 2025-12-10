@@ -47,8 +47,8 @@ def dkernel_ngb_sum(x, h, ngb, boxsize):
     """Neighbor sum of spatial derivative of cubic spline kernel function"""
     N, dim = x.shape
     result = np.zeros_like(x)
-    dx = np.empty(dim)
     for i in prange(N):
+        dx = np.empty(dim)
         x0, h0 = x[i], h[i]
         for n in ngb[i]:
             for k in range(dim):
@@ -66,8 +66,8 @@ def kernel_gradient(f, x, h, ngb, boxsize):
     """SPH-style kernel gradient estimator"""
     N, dim = x.shape
     result = np.zeros_like(x)
-    dx = np.empty(dim)
     for i in prange(N):
+        dx = np.empty(dim)
         x0, h0 = x[i], h[i]
         for n in ngb[i]:
             for k in range(dim):
