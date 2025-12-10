@@ -1,6 +1,6 @@
-from meshoid.radiation.dust import dust_mean_opacity
-import numpy as np
-from matplotlib import pyplot as plt
+#from meshoid.radiation.dust import dust_mean_opacity
+#import numpy as np
+#from matplotlib import pyplot as plt
 
 # Trad = np.logspace(0, 4, 10**4)
 # Tdust_vals = 10, 200, 300, 500, 1000
