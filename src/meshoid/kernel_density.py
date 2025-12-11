@@ -61,23 +61,24 @@ def dkernel_ngb_sum(x, h, ngb, boxsize):
     return result
 
 
-@njit(parallel=True, fastmath=True)
-def kernel_gradient(f, x, h, ngb, boxsize):
-    """SPH-style kernel gradient estimator"""
-    N, dim = x.shape
-    result = np.zeros_like(x)
-    for i in prange(N):
-        dx = np.empty(dim)
-        x0, h0 = x[i], h[i]
-        for n in ngb[i]:
-            for k in range(dim):
-                dx[k] = x[n, k] - x0[k]
-                if boxsize is not None:
-                    dx[k] = nearest_image(dx[k], boxsize)
-            dk = dkernel(dx, h0)
-            for k in range(dim):
-                result[i, k] += f[n] * dk[k]
-    return result
+# @njit(parallel=True, fastmath=True)
+# def kernel_gradient(f, x, h, ngb, boxsize):
+#     """SPH-style kernel gradient estimator"""
+#     N, dim = x.shape
+#     result = np.zeros_like(x)
+#     for i in prange(N):
+#         dx = np.empty(dim)
+#         x0, h0 = x[i], h[i]
+#         for n in ngb[i]:
+#             for k in range(dim):
+#                 dx[k] = x[n, k] - x0[k]
+#                 if boxsize is not None:
+#                     dx[k] = nearest_image(dx[k], boxsize)
+#             dk = dkernel(dx, h0)
+#             k = kernel()
+#             for k in range(dim):
+#                 result[i, k] += f[n] * dk[k]
+#     return result
 
 
 @jit(fastmath=True, parallel=True)
