@@ -6,6 +6,7 @@ from scipy.spatial import KDTree
 from .grid_deposition import *
 from .kernel_density import *
 from .derivatives import *
+from .periodic import nearest_image_v
 
 
 class Meshoid:
