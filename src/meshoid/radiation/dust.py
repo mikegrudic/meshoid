@@ -157,6 +157,7 @@ def dust_mean_opacity(
                 return np.trapezoid(planck_function(freq, T) * monochrome_opacity, freq) / np.trapezoid(
                     planck_function(freq, T), freq
                 )
+
         elif which == "rosseland":
 
             def mean(T):
@@ -165,6 +166,7 @@ def dust_mean_opacity(
                     np.trapezoid(planck_function_dT(freq, T) / monochrome_opacity, freq)
                     / np.trapezoid(planck_function_dT(freq, T), freq)
                 ) ** -1.0
+
         else:
             raise NotImplementedError(f"Opacity mean {which} not implemented.")
 
@@ -228,7 +230,7 @@ def thermal_emissivity(kappa, T, wavelengths_um=HERSCHEL_DEFAULT_WAVELENGTHS):
 
 
 def dust_emission_map(
-    x_pc, m_msun, h_pc, Tdust, size_pc, res, wavelengths_um=HERSCHEL_DEFAULT_WAVELENGTHS, center_pc=0
+    x_pc, m_msun, h_pc, Tdust, size_pc, res, wavelengths_um=HERSCHEL_DEFAULT_WAVELENGTHS, center_pc=0, model="Semenov03"
 ) -> np.ndarray:
     """Generates a map of dust emission in cgs units for specified wavelengths,
     neglecting scattering (OK for FIR/submm wavelengths)
@@ -258,7 +260,7 @@ def dust_emission_map(
         shape (res,res,num_bands) datacube of dust emission intensity
         in erg/s/cm^2/sr/Hz
     """
-    kappa = dust_abs_opacity(wavelengths_um, Tdust=Tdust)
+    kappa = dust_abs_opacity(wavelengths_um, Tdust=Tdust, model=model)
     # kappa = np.array(len(x_pc) * [kappa])
     j = thermal_emissivity(kappa, Tdust, wavelengths_um)
     m_cgs = m_msun * (constants.M_sun.cgs.value)
