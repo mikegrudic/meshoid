@@ -457,7 +457,7 @@ class Meshoid:
         f : array_like
             Quantity to be reconstructed on the slice grid
         size : optional
-            Side length of the grid (default: None, will use the meshoid's predefined side length')
+            Side length of the grid (default: None, will use the meshoid's predefined side length').
         plane : optional
             The direction of the normal of the slicing plane, one of x, y, or z,
             OR can give an iterable containing 2 orthogonal basis vectors that
@@ -483,7 +483,9 @@ class Meshoid:
         if self.tree is None:
             self.TreeUpdate()
 
-        x, y = np.linspace(-size / 2, size / 2, res), np.linspace(-size / 2, size / 2, res)
+        x = np.linspace(-size / 2, size / 2, res + 1)
+        x = (x[1:] + x[:-1]) / 2  # cell centers
+        y = np.copy(x)
         x, y = np.meshgrid(x, y, indexing="ij")
 
         slicegrid = np.c_[x.flatten(), y.flatten(), np.zeros(res * res)] + center
@@ -493,7 +495,7 @@ class Meshoid:
             slicegrid = np.c_[x.flatten(), np.zeros(res * res), y.flatten()] + center
 
         f_grid = self.Reconstruct(f, slicegrid, order)
-        shape = (res, res)
+        shape = res, res
         if len(f.shape) > 1:
             shape += f.shape[1:]
         if return_grid:
