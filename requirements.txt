@@ -2,3 +2,4 @@ astropy
 numba
 numpy
 scipy
+h5py
