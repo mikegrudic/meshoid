@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meshoid"
-version = "1.48.13"
+version = "1.49.0"
 authors = [
   { name="Mike Grudić", email="mike.grudic@gmail.com" },
 ]

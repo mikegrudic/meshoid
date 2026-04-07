@@ -133,6 +133,8 @@ def kernel2d(q):
     elif q <= 1.0:
         a = 1 - q
         kernel = 2 * a * a * a
+    else:
+        return 0.0
     return kernel * 1.8189136353359467
 
 
@@ -144,6 +146,8 @@ def kernel3d(q):
     elif q <= 1.0:
         a = 1 - q
         kernel = 2 * a * a * a
+    else:
+        return 0.0
     return kernel * 2.546479089470325
 
 

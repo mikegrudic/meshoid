@@ -147,7 +147,7 @@ def GridSurfaceDensity(f, x, h, center, size, res=128, box_size=-1, parallel=Tru
         return splatting_func(f, x, h, center, size, res, box_size)
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True)
 def parallelize_generic_splatting_3d(splatting_function, f, x, h, center, size, res=128, box_size=-1):
     """
     Generic driver for performing splatting/deposition operations in parallel by chunking the particle list
@@ -182,7 +182,7 @@ def parallelize_generic_splatting_3d(splatting_function, f, x, h, center, size, 
     return splatted_values
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True)
 def parallelize_generic_splatting_2d(splatting_function, f, x, h, center, size, res=128, box_size=-1):
     """
     Generic driver for performing splatting/deposition operations in parallel by chunking the particle list
@@ -242,6 +242,7 @@ def GridSurfaceDensity_core(f, x, h, center, size, res=128, box_size=-1):
     for i in range(N):
         xs = x2d[i]
         hs = h[i]
+        hs_sqr = hs * hs
         hinv = 1 / hs
         mh2 = f[i] * hinv * hinv
 
@@ -256,10 +257,10 @@ def GridSurfaceDensity_core(f, x, h, center, size, res=128, box_size=-1):
             for gy in range(gymin, gymax + 1):
                 delta_y_sqr = xs[1] - gy * dx
                 delta_y_sqr *= delta_y_sqr
-                r = np.sqrt(delta_x_sqr + delta_y_sqr)
-                if r > hs:
+                r_sqr = delta_x_sqr + delta_y_sqr
+                if r_sqr > hs_sqr:
                     continue
-                q = r * hinv
+                q = np.sqrt(r_sqr) * hinv
                 grid[gx, gy] += kernel2d(q) * mh2
     return grid
 
@@ -292,6 +293,7 @@ def GridSurfaceDensity_conservative_core(f, x, h, center, size, res=128, box_siz
         xs = x2d[i]
         hs = h[i]
         hs = max(hs, dx)
+        hs_sqr = hs * hs
         hinv = 1 / hs
 
         gxmin = max(int((xs[0] - hs) / dx + 1), 0)
@@ -299,33 +301,38 @@ def GridSurfaceDensity_conservative_core(f, x, h, center, size, res=128, box_siz
         gymin = max(int((xs[1] - hs) / dx + 1), 0)
         gymax = min(int((xs[1] + hs) / dx), res - 1)
 
-        total_wt = 0
+        # first pass: compute and cache kernel values, accumulate total weight
+        kval = np.empty((gxmax - gxmin + 1) * (gymax - gymin + 1))
+        total_wt = 0.0
+        j = 0
         for gx in range(gxmin, gxmax + 1):
             delta_x_sqr = xs[0] - gx * dx
             delta_x_sqr *= delta_x_sqr
             for gy in range(gymin, gymax + 1):
                 delta_y_sqr = xs[1] - gy * dx
                 delta_y_sqr *= delta_y_sqr
-                r = np.sqrt(delta_x_sqr + delta_y_sqr)
-                if r > hs:
-                    continue
-                q = r * hinv
-                total_wt += kernel2d(q)
+                r_sqr = delta_x_sqr + delta_y_sqr
+                if r_sqr > hs_sqr:
+                    kval[j] = 0.0
+                else:
+                    q = np.sqrt(r_sqr) * hinv
+                    k = kernel2d(q)
+                    kval[j] = k
+                    total_wt += k
+                j += 1
 
         if total_wt == 0:
             continue
 
+        # second pass: deposit using cached kernel values
+        fac = f[i] / total_wt
+        j = 0
         for gx in range(gxmin, gxmax + 1):
-            delta_x_sqr = xs[0] - gx * dx
-            delta_x_sqr *= delta_x_sqr
             for gy in range(gymin, gymax + 1):
-                delta_y_sqr = xs[1] - gy * dx
-                delta_y_sqr *= delta_y_sqr
-                r = np.sqrt(delta_x_sqr + delta_y_sqr)
-                if r > hs:
-                    continue
-                q = r * hinv
-                grid[gx, gy] += kernel2d(q) * f[i] / total_wt
+                k = kval[j]
+                j += 1
+                if k > 0:
+                    grid[gx, gy] += k * fac
 
     return grid * dx2inv
 
@@ -450,8 +457,10 @@ def GridAverage(f, x, h, center, size, res=128, box_size=-1):
     for i in range(N):
         xs = x2d[i]
         hs = h[i]
+        hs_sqr = hs * hs
         hinv = 1 / hs
         h2 = hinv * hinv
+        fh2 = f[i] * h2
 
         gxmin = max(int((xs[0] - hs) / dx + 1), 0)
         gxmax = min(int((xs[0] + hs) / dx), res - 1)
@@ -464,10 +473,13 @@ def GridAverage(f, x, h, center, size, res=128, box_size=-1):
             for gy in range(gymin, gymax + 1):
                 delta_y_sqr = xs[1] - gy * dx
                 delta_y_sqr *= delta_y_sqr
-                q = np.sqrt(delta_x_sqr + delta_y_sqr) * hinv
+                r_sqr = delta_x_sqr + delta_y_sqr
+                if r_sqr > hs_sqr:
+                    continue
+                q = np.sqrt(r_sqr) * hinv
                 kernel = kernel2d(q)
                 grid1[gx, gy] += kernel * h2
-                grid2[gx, gy] += f[i] * kernel * h2
+                grid2[gx, gy] += fh2 * kernel
     return grid2 / grid1
 
 
