@@ -5,7 +5,7 @@ from .derivatives import nearest_image
 from .kernel_density import *
 
 
-@njit(fastmath=True, error_model="numpy")
+@njit(fastmath=True, error_model="numpy", cache=True)
 def grid_index_to_coordinate(index: int, grid_length: float, grid_center: float, N_grid: int, box_size=None):
     """Convert the index of a grid to the *cell-centered* coordinate of that
     grid cell, in a given dimension
@@ -36,7 +36,7 @@ def grid_index_to_coordinate(index: int, grid_length: float, grid_center: float,
     return x
 
 
-@njit(fastmath=True, error_model="numpy")
+@njit(fastmath=True, error_model="numpy", cache=True)
 def grid_dx_from_coordinate(x: float, index: int, grid_length: float, grid_center: float, N_grid: int, box_size=None):
     """
     Returns the *nearest image* coordinate difference from a given coordinate x
@@ -147,7 +147,7 @@ def GridSurfaceDensity(f, x, h, center, size, res=128, box_size=-1, parallel=Tru
         return splatting_func(f, x, h, center, size, res, box_size)
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True)
 def parallelize_generic_splatting_3d(splatting_function, f, x, h, center, size, res=128, box_size=-1):
     """
     Generic driver for performing splatting/deposition operations in parallel by chunking the particle list
@@ -182,7 +182,7 @@ def parallelize_generic_splatting_3d(splatting_function, f, x, h, center, size, 
     return splatted_values
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True)
 def parallelize_generic_splatting_2d(splatting_function, f, x, h, center, size, res=128, box_size=-1):
     """
     Generic driver for performing splatting/deposition operations in parallel by chunking the particle list
@@ -217,7 +217,7 @@ def parallelize_generic_splatting_2d(splatting_function, f, x, h, center, size, 
     return splatted_values
 
 
-@njit(fastmath=True, error_model="numpy")
+@njit(fastmath=True, error_model="numpy", cache=True)
 def GridSurfaceDensity_core(f, x, h, center, size, res=128, box_size=-1):
     """
     Computes the surface density of conserved quantity f colocated at positions x with smoothing lengths h. E.g.
@@ -264,7 +264,7 @@ def GridSurfaceDensity_core(f, x, h, center, size, res=128, box_size=-1):
     return grid
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def GridSurfaceDensity_conservative_core(f, x, h, center, size, res=128, box_size=-1):
     """
     Computes the surface density of conserved quantity f colocated at positions x with smoothing lengths h.
@@ -330,7 +330,7 @@ def GridSurfaceDensity_conservative_core(f, x, h, center, size, res=128, box_siz
     return grid * dx2inv
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def UpsampleGrid_PPV(grid):
     newgrid = np.empty((grid.shape[0] * 2, grid.shape[1] * 2, grid.shape[2]))
     for i in range(grid.shape[0]):
@@ -371,7 +371,7 @@ def Grid_PPZ_DataCube_Multigrid(f, x, h, center, size, z, h_z, res, box_size=-1,
     return grid
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res, box_size=-1):
     """
     A modified version of the GridSurfaceDensity script, it computes the PPZ datacube of conserved quantity f, where Z is an arbitrary data dimension (e.g. using line-of-sight velocity as Z gives the usual astro PPV datacubes, using position gives a PPP cube, which is just the density).
@@ -427,7 +427,7 @@ def Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res, box_size=-1):
     return grid
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def GridAverage(f, x, h, center, size, res=128, box_size=-1):
     """
     Computes the number density-weighted average of a function f, integrated along sightlines on a Cartesian grid. ie. integral(n f dz)/integral(n dz) where n is the number density and z is the direction of the sightline.
@@ -471,7 +471,7 @@ def GridAverage(f, x, h, center, size, res=128, box_size=-1):
     return grid2 / grid1
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def WeightedGridInterp3D(f, wt, x, h, center, size, res=128, box_size=-1):
     """
     Peforms a weighted grid interpolation of quantity f onto a 3D grid
@@ -573,7 +573,7 @@ def GridDensity(f, x, h, center, size, res=128, box_size=-1.0, parallel=True):
         return GridDensity_core(f, x, h, center, size, res, box_size)
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def GridDensity_core(f, x, h, center, size, res=128, box_size=-1.0):
     """
     Estimates the density of the conserved quantity f possessed by each particle (e.g. mass, momentum, energy) on a 3D grid

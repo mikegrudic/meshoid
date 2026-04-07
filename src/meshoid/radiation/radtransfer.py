@@ -8,7 +8,7 @@ from ..kernel_density import *
 import os
 
 
-@njit(fastmath=True, error_model="numpy", parallel=True)
+@njit(fastmath=True, error_model="numpy", parallel=True, cache=True)
 def radtransfer(j, m, kappa, x, h, gridres, L, center=0, i0=0):
     """Simple radiative transfer solver
 
@@ -84,7 +84,7 @@ def radtransfer(j, m, kappa, x, h, gridres, L, center=0, i0=0):
     return I_total
 
 
-@njit(fastmath=True, error_model="numpy")
+@njit(fastmath=True, error_model="numpy", cache=True)
 def radtransfer_singlethread(j, m, kappa, x, h, gridres, L, center=0, i0=0):
     """Simple radiative transfer solver
 

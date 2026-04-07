@@ -6,7 +6,7 @@ from .kernel_density import Kernel_v
 from .periodic import nearest_image
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def kernel_dx_and_weights(
     i: int,
     pos: np.ndarray,
@@ -35,7 +35,7 @@ def kernel_dx_and_weights(
     return dx, weights
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def polyfit_leastsq_matrices(dx: np.ndarray, weights: np.ndarray, order: int = 1):
     """
     Return the left-hand side and right-hand side matrices for the system of
@@ -86,7 +86,7 @@ def polyfit_leastsq_matrices(dx: np.ndarray, weights: np.ndarray, order: int = 1
     return lhs_matrix, rhs_matrix
 
 
-@njit
+@njit(cache=True)
 def get_num_derivs(dim: int, order: int) -> int:
     """Returns number of unique derivatives to compute for a given matrix order
     and dimension
@@ -97,7 +97,7 @@ def get_num_derivs(dim: int, order: int) -> int:
         return {1: 2, 2: 5, 3: 9}[dim]
 
 
-@njit(parallel=True, fastmath=True, error_model="numpy")
+@njit(parallel=True, fastmath=True, error_model="numpy", cache=True)
 def gradient_weights(pos, ngb, kernel_radius, indices, boxsize=None, weighted=True, order=1):
     """Computes the N_particles (dim x N_ngb) matrices that encode the least-
     squares gradient operators

@@ -4,7 +4,7 @@ from numba import njit, vectorize
 import numpy as np
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def nearest_image(dx_coord, boxsize):
     """Returns separation vector for nearest image, given the coordinate
     difference dx_coord and assuming coordinates run from 0 to boxsize"""
@@ -13,7 +13,7 @@ def nearest_image(dx_coord, boxsize):
     return dx_coord
 
 
-@vectorize
+@vectorize(cache=True)
 def nearest_image_v(dx_coord, boxsize):
     """Returns separation vector for nearest image, given the coordinate
     difference dx_coord and assuming coordinates run from 0 to boxsize"""

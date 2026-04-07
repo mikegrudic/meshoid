@@ -19,7 +19,7 @@ kernel_norm = {dim: 1.0 / quad(lambda x: kernel(x) * np.pi * (2 * x) ** (dim - 1
 kernel_norm[1] *= 0.5
 
 
-@jit(fastmath=True)
+@jit(fastmath=True, cache=True)
 def dkernel(dx, h):
     """Spatial derivative of cubic spline kernel function"""
     dim = dx.shape[-1]
@@ -42,7 +42,7 @@ def dkernel(dx, h):
     return result
 
 
-@njit(parallel=True, fastmath=True)
+@njit(parallel=True, fastmath=True, cache=True)
 def dkernel_ngb_sum(x, h, ngb, boxsize):
     """Neighbor sum of spatial derivative of cubic spline kernel function"""
     N, dim = x.shape
@@ -125,7 +125,7 @@ def HsmlIter(neighbor_dists, des_ngb, dim=3, error_norm=1e-6):
     return hsml
 
 
-@njit(fastmath=True, error_model="numpy")
+@njit(fastmath=True, error_model="numpy", cache=True)
 def kernel2d(q):
     """Returns the normalized 2D spline kernel evaluated at radius q"""
     if q <= 0.5:
@@ -136,7 +136,7 @@ def kernel2d(q):
     return kernel * 1.8189136353359467
 
 
-@njit(fastmath=True, error_model="numpy")
+@njit(fastmath=True, error_model="numpy", cache=True)
 def kernel3d(q):
     """Returns the normalized 3D spline kernel evaluated at radius q"""
     if q <= 0.5:
@@ -147,7 +147,7 @@ def kernel3d(q):
     return kernel * 2.546479089470325
 
 
-@vectorize([float32(float32), float64(float64)])
+@vectorize([float32(float32), float64(float64)], cache=True)
 def Kernel_v(q):
     """
     Un-normalized cubic-spline kernel function

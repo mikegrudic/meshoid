@@ -3,7 +3,7 @@ from numpy.linalg import pinv
 from numba import njit, prange
 
 
-@njit(fastmath=True, error_model="numpy")
+@njit(fastmath=True, error_model="numpy", cache=True)
 def planck_function(freqs, T):
     """
     Blackbody function in frequency:
@@ -27,7 +27,7 @@ def planck_function(freqs, T):
     return I_thick
 
 
-@njit(fastmath=True, error_model="numpy")
+@njit(fastmath=True, error_model="numpy", cache=True)
 def planck_function_dT(freqs, T):
     """
     Temperature-derivative of the black-body function in frequency:
@@ -51,7 +51,7 @@ def planck_function_dT(freqs, T):
     return u
 
 
-@njit(fastmath=True, error_model="numpy")
+@njit(fastmath=True, error_model="numpy", cache=True)
 def modified_planck_function(freqs, logtau, beta, T):
     """
     Modified blackbody function:
@@ -93,7 +93,7 @@ def modified_planck_function(freqs, logtau, beta, T):
     return I_thick * taufac
 
 
-@njit(fastmath=True, error_model="numpy")
+@njit(fastmath=True, error_model="numpy", cache=True)
 def blackbody_residual_jacobian(freqs, sed_error, logtau, beta, logT):
     """Jacobian for least-squares fit to modified blackbody
 
@@ -138,7 +138,7 @@ def blackbody_residual_jacobian(freqs, sed_error, logtau, beta, logT):
     return jac
 
 
-@njit(error_model="numpy", parallel=True)
+@njit(error_model="numpy", parallel=True, cache=True)
 def modified_blackbody_fit_image(image, image_error, wavelengths, fixed_beta=0):
     """Fit each pixel in a datacube to a modified blackbody
 
@@ -186,7 +186,7 @@ def modified_blackbody_fit_image(image, image_error, wavelengths, fixed_beta=0):
     return params
 
 
-@njit(error_model="numpy")
+@njit(error_model="numpy", cache=True)
 def modified_blackbody_fit_gaussnewton(sed, sed_error, wavelengths, p0=(1.0, 1.5, 30.0), fixed_beta=0.0):
     """
     Fits a single SED to a modified blackbody using Gauss-Newton method
