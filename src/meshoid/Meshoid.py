@@ -420,15 +420,8 @@ class Meshoid:
         if order < 0 or order > 2:
             raise NotImplementedError("Reconstruction of order > 2 not supported.")
 
-        if order == 1:
-            if self.dweights is None:
-                self.ComputeDWeights(1)
-        elif order == 2:
-            if self.d2weights is None:
-                self.ComputeDWeights(2)
         # get nearest neighbor of each target point
         _, target_neighbors = self.tree.query(target_points, workers=self.n_jobs)
-        #        unique_neighbors, neighbor_idx = np.unique(target_neighbors, return_inverse=True)
 
         # get value of f at each nearest neighbor
         f_target = np.take(f, target_neighbors, axis=0)
@@ -436,20 +429,46 @@ class Meshoid:
             return f_target
 
         # 1st-order reconstruction
-        self.printv(target_points, self.pos.take(target_neighbors, axis=0))
         dx = target_points - self.pos.take(target_neighbors, axis=0)
         if self.boxsize is not None:
             dx = nearest_image_v(dx, self.boxsize)
-        #        if not np.array_equal(self.particle_mask, unique_neighbors):
-        # self.particle_mask = unique_neighbors
-        # self.TreeUpdate()  # update neighbor lists to just the target neighbors
-        # self.reset_dweights()  # reset derivative weights if already computed
-        gradf = self.D(f, order=order)
-        if slope_limiter:
-            # only compute the limiter for particles that are actually needed
+
+        # determine whether we can reuse cached weights or need to compute
+        # for only the unique target neighbors
+        weights_key = self.dweights if order == 1 else self.dweights_3rdorder
+        if weights_key is not None:
+            # weights already cached for all particles — use D() directly
+            gradf = self.D(f, order=order)
+            gradf_neighbors = gradf.take(target_neighbors, axis=0)
+        else:
+            # compute gradient weights only for unique target neighbors
             unique_nb, inv = np.unique(target_neighbors, return_inverse=True)
-            f_ngb = np.take(f, self.ngb[unique_nb], axis=0)  # (N_unique, N_ngb, ...)
-            f_i = f[unique_nb]  # (N_unique, ...)
+            subset_weights = gradient_weights(
+                self.pos,
+                self.ngb[unique_nb],
+                self.kernel_radius[unique_nb],
+                unique_nb,
+                boxsize=self.boxsize,
+                order=order,
+            )
+            if order == 2:
+                subset_d1weights = subset_weights[:, : self.dim, :]
+                subset_d2weights = subset_weights[:, self.dim :, :]
+            else:
+                subset_d1weights = subset_weights
+            df = np.take(f, self.ngb[unique_nb], axis=0) - f[unique_nb, None]
+            gradf_unique = np.einsum(
+                "ikj,ij...->i...k", subset_d1weights, df, optimize="optimal"
+            )
+            gradf_neighbors = gradf_unique[inv]
+
+        if slope_limiter:
+            # in the cached path, unique_nb/inv/gradf_unique aren't set yet
+            if weights_key is not None:
+                unique_nb, inv = np.unique(target_neighbors, return_inverse=True)
+                gradf_unique = gradf[unique_nb]
+            f_ngb = np.take(f, self.ngb[unique_nb], axis=0)
+            f_i = f[unique_nb]
             f_max = np.maximum(f_i, np.max(f_ngb, axis=1))
             f_min = np.minimum(f_i, np.min(f_ngb, axis=1))
             dx_ngb = self.pos[self.ngb[unique_nb]] - self.pos[unique_nb, None]
@@ -458,7 +477,6 @@ class Meshoid:
                 dx_ngb = nearest_image_v(
                     dx_ngb.reshape(-1, self.dim), self.boxsize
                 ).reshape(orig_shape)
-            gradf_unique = gradf[unique_nb]  # (N_unique, ..., dim)
             delta = np.einsum("ijk,i...k->ij...", dx_ngb, gradf_unique)
             d_plus = np.expand_dims(f_max - f_i, axis=1)
             d_minus = np.expand_dims(f_min - f_i, axis=1)
@@ -469,16 +487,24 @@ class Meshoid:
                     np.where(delta < 0, np.minimum(1.0, d_minus / delta), 1.0),
                 )
             alpha = np.where(np.isfinite(alpha), alpha, 1.0)
-            alpha = np.clip(np.min(alpha, axis=1), 0.0, 1.0)  # (N_unique, ...)
+            alpha = np.clip(np.min(alpha, axis=1), 0.0, 1.0)
             gradf_neighbors = (gradf_unique * alpha[..., None])[inv]
-        else:
-            gradf_neighbors = gradf.take(target_neighbors, axis=0)
+
         f_target += np.einsum("ij,i...j->i...", dx, gradf_neighbors)
         if order == 1:
             return f_target
 
         # 2nd order reconstruction
-        d2f_neighbors = self.D2(f).take(target_neighbors, axis=0)
+        if self.d2weights is not None:
+            d2f = self.D2(f)
+            d2f_neighbors = d2f.take(target_neighbors, axis=0)
+        else:
+            # subset_d2weights and df already computed above for order==2
+            d2f_unique = np.einsum(
+                "ikj,ij...->i...k", subset_d2weights, df, optimize="optimal"
+            )
+            d2f_neighbors = d2f_unique[inv]
+
         f_target += 0.5 * np.einsum("ij,ij...->i...", dx * dx, d2f_neighbors[..., :3])  # pure 2nd derivative terms
         for dim in range(self.dim):
             f_target += np.einsum(
