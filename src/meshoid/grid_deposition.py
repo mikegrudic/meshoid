@@ -1,4 +1,4 @@
-from numba import njit, prange, get_num_threads
+from numba import njit, get_num_threads
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
 from .derivatives import nearest_image
@@ -137,84 +137,48 @@ def GridSurfaceDensity(f, x, h, center, size, res=128, box_size=-1, parallel=Tru
     """
 
     if conservative:
-        splatting_func = GridSurfaceDensity_conservative_core
+        core = GridSurfaceDensity_conservative_core
     else:
-        splatting_func = GridSurfaceDensity_core
+        core = GridSurfaceDensity_core
 
     if parallel:
-        return parallelize_generic_splatting_2d(splatting_func, f, x, h, center, size, res, box_size)
+        return _run_parallel_splatting(core, f, x, h, center, size, res, box_size, ndim=2)
     else:
-        return splatting_func(f, x, h, center, size, res, box_size)
+        return core(f, x, h, center, size, res, box_size)
 
 
-@njit(parallel=True)
-def parallelize_generic_splatting_3d(splatting_function, f, x, h, center, size, res=128, box_size=-1):
+def _run_parallel_splatting(splatting_func, f, x, h, center, size, res, box_size, ndim=2):
+    """Parallelize a cached splatting function using Python threads.
+
+    Each thread runs the numba-compiled (and cached) core function on a chunk
+    of particles.  The GIL is released inside numba, so threads run truly in
+    parallel.  This avoids the numba parallel-function caching limitation.
     """
-    Generic driver for performing splatting/deposition operations in parallel by chunking the particle list
-    and summing the end result.
+    nthreads = get_num_threads()
+    fc = np.array_split(f, nthreads, 0)
+    xc = np.array_split(x, nthreads, 0)
+    hc = np.array_split(h, nthreads, 0)
+    shape = (res,) * ndim
+    results = [None] * nthreads
 
-    Parameters
-    ----------
-    splatting_function: function
-        Function that performs the splatting on a subset of particles
-    f: array_like
-        Shape (N,) array of the conserved quantity that you want the surface density of (e.g. particle masses)
-    x: array_like
-        Shape (N,3) array of particle positions
-    h: array_like
-        Shape (N,) array of particle smoothing lengths
-    center: array_like
-        Shape (3,) array containing the coorindates of the center of the map
-    size: float
-        Side-length of the map
-    res: int, optional
-        Resolution of the map
-    """
+    def _worker(i):
+        results[i] = splatting_func(fc[i], xc[i], hc[i], center, size, res, box_size)
 
-    Nthreads = get_num_threads()
-    NUM_CHUNKS_PER_THREAD = 1
-    Nchunks = Nthreads * NUM_CHUNKS_PER_THREAD
-    # chunk the particles among the threads
-    splatted_values = np.zeros((res, res, res))  # numba will automatically perform parallel reduction onto this
-    f, x, h = np.array_split(f, Nchunks, 0), np.array_split(x, Nchunks, 0), np.array_split(h, Nchunks, 0)
-    for i in prange(Nchunks):
-        splatted_values += splatting_function(f[i], x[i], h[i], center, size, res, box_size)
-    return splatted_values
+    threads = []
+    from threading import Thread
+    for i in range(nthreads):
+        t = Thread(target=_worker, args=(i,))
+        t.start()
+        threads.append(t)
+    for t in threads:
+        t.join()
+
+    out = np.zeros(shape)
+    for r in results:
+        out += r
+    return out
 
 
-@njit(parallel=True)
-def parallelize_generic_splatting_2d(splatting_function, f, x, h, center, size, res=128, box_size=-1):
-    """
-    Generic driver for performing splatting/deposition operations in parallel by chunking the particle list
-    and summing the end result.
-
-    Parameters
-    ----------
-    splatting_function: function
-        Function that performs the splatting on a subset of particles
-    f: array_like
-        Shape (N,) array of the conserved quantity that you want the surface density of (e.g. particle masses)
-    x: array_like
-        Shape (N,3) array of particle positions
-    h: array_like
-        Shape (N,) array of particle smoothing lengths
-    center: array_like
-        Shape (3,) or (2,) array containing the coordinates of the center of the map
-    size: float
-        Side-length of the map
-    res: int, optional
-        Resolution of the map
-    """
-
-    Nthreads = get_num_threads()
-    NUM_CHUNKS_PER_THREAD = 1
-    Nchunks = Nthreads * NUM_CHUNKS_PER_THREAD
-    # chunk the particles among the threads
-    splatted_values = np.zeros((res, res))  # numba will automatically perform parallel reduction onto this
-    f, x, h = np.array_split(f, Nchunks, 0), np.array_split(x, Nchunks, 0), np.array_split(h, Nchunks, 0)
-    for i in prange(Nchunks):
-        splatted_values += splatting_function(f[i], x[i], h[i], center, size, res, box_size)
-    return splatted_values
 
 
 @njit(fastmath=True, error_model="numpy", cache=True)
@@ -580,7 +544,7 @@ def WeightedGridInterp3D(f, wt, x, h, center, size, res=128, box_size=-1):
 
 def GridDensity(f, x, h, center, size, res=128, box_size=-1.0, parallel=True):
     if parallel:
-        return parallelize_generic_splatting_3d(GridDensity_core, f, x, h, center, size, res, box_size)
+        return _run_parallel_splatting(GridDensity_core, f, x, h, center, size, res, box_size, ndim=3)
     else:
         return GridDensity_core(f, x, h, center, size, res, box_size)
 

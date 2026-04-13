@@ -53,7 +53,7 @@ class Meshoid:
         Meshoid
             Meshoid instance created from particle data
         """
-        self.tree = None
+        self._tree = None
         if len(pos.shape) == 1:
             pos = pos[:, None]
 
@@ -91,7 +91,7 @@ class Meshoid:
             m = np.repeat(1.0 / self.N, self.N)
         self.m = m[self.particle_mask]
 
-        self.ngb = None
+        self._ngb = None
         self.kernel_radius = kernel_radius
         self.dweights = None
         self.d2weights = None
@@ -103,6 +103,26 @@ class Meshoid:
         else:
             self.vol = self.volnorm * self.kernel_radius**self.dim / self.des_ngb
             self.density = self.m / self.vol
+
+    @property
+    def tree(self):
+        if self._tree is None:
+            self.BuildTree()
+        return self._tree
+
+    @tree.setter
+    def tree(self, value):
+        self._tree = value
+
+    @property
+    def ngb(self):
+        if self._ngb is None:
+            self.TreeUpdate()
+        return self._ngb
+
+    @ngb.setter
+    def ngb(self, value):
+        self._ngb = value
 
     def printv(self, *a, **k):
         if self.verbose:
@@ -124,9 +144,6 @@ class Meshoid:
         """
 
         self.printv(f"Computing weights for derivatives of order {order}...")
-
-        if self.ngb is None:
-            self.TreeUpdate()
 
         weights = gradient_weights(
             self.pos,
@@ -151,9 +168,6 @@ class Meshoid:
         """
         Computes or updates the neighbor lists, smoothing lengths, and densities of particles.
         """
-
-        if self.tree is None:
-            self.BuildTree()
 
         self.printv("Finding neighbors...")
         self.ngbdist, self.ngb = self.tree.query(
@@ -196,8 +210,6 @@ class Meshoid:
         -------
         self.ngb - (N,ngb) array of the indices of the each particle's Nngb nearest neighbors
         """
-        if self.ngb is None:
-            self.TreeUpdate()
         return self.ngb
 
     def NeighborDistance(self):
@@ -254,9 +266,6 @@ class Meshoid:
         positions of the particles in the particle mask
         """
 
-        if self.ngb is None:
-            self.TreeUpdate()
-
         df = np.take(f, self.ngb, axis=0) - f[self.particle_mask, None]
 
         if order == 1:
@@ -287,9 +296,6 @@ class Meshoid:
         For 2D, the order is [xx,yy,xy]
         for 3D, the order is [xx,yy,zz,xy,yz,zx]
         """
-        if self.ngb is None:
-            self.TreeUpdate()
-
         df = np.take(f, self.ngb, axis=0) - f[self.particle_mask, None]
 
         if self.d2weights is None:
@@ -359,8 +365,6 @@ class Meshoid:
         -------
         Shape (Nmask,...) array of standard deviations of f over the kernel
         """
-        if self.ngb is None:
-            self.TreeUpdate()
         return np.std(f[self.ngb], axis=1)
 
     def KernelAverage(self, f):
@@ -378,7 +382,13 @@ class Meshoid:
         """
         return np.einsum("ij,ij->i", self.get_kernel_weights(), f[self.ngb])
 
-    def Reconstruct(self, f: np.ndarray, target_points: np.ndarray, order: int = 1):
+    def Reconstruct(
+        self,
+        f: np.ndarray,
+        target_points: np.ndarray,
+        order: int = 1,
+        slope_limiter: bool = False,
+    ):
         """
         Gives the value of a function f colocated on the meshoid points
         reconstructed at an arbitrary set of points
@@ -396,14 +406,17 @@ class Meshoid:
             0 - nearest-neighbor value
             1 - linear reconstruction from the nearest neighbor
             2 - quadratic reconstruction from the nearest neighbor
+        slope_limiter: bool, optional
+            Whether to apply the Barth-Jespersen slope limiter to the gradient
+            (default False). Limits the gradient so that the reconstructed
+            value at any neighbor does not exceed the local min/max of f,
+            consistent with the default slope limiter in GIZMO.
 
         Returns
         -------
         f_target : ndarray
             Values of f reconstructed at the target points
         """
-        if self.tree is None:
-            self.BuildTree()
         if order < 0 or order > 2:
             raise NotImplementedError("Reconstruction of order > 2 not supported.")
 
@@ -431,7 +444,35 @@ class Meshoid:
         # self.particle_mask = unique_neighbors
         # self.TreeUpdate()  # update neighbor lists to just the target neighbors
         # self.reset_dweights()  # reset derivative weights if already computed
-        gradf_neighbors = self.D(f, order=order).take(target_neighbors, axis=0)
+        gradf = self.D(f, order=order)
+        if slope_limiter:
+            # only compute the limiter for particles that are actually needed
+            unique_nb, inv = np.unique(target_neighbors, return_inverse=True)
+            f_ngb = np.take(f, self.ngb[unique_nb], axis=0)  # (N_unique, N_ngb, ...)
+            f_i = f[unique_nb]  # (N_unique, ...)
+            f_max = np.maximum(f_i, np.max(f_ngb, axis=1))
+            f_min = np.minimum(f_i, np.min(f_ngb, axis=1))
+            dx_ngb = self.pos[self.ngb[unique_nb]] - self.pos[unique_nb, None]
+            if self.boxsize is not None:
+                orig_shape = dx_ngb.shape
+                dx_ngb = nearest_image_v(
+                    dx_ngb.reshape(-1, self.dim), self.boxsize
+                ).reshape(orig_shape)
+            gradf_unique = gradf[unique_nb]  # (N_unique, ..., dim)
+            delta = np.einsum("ijk,i...k->ij...", dx_ngb, gradf_unique)
+            d_plus = np.expand_dims(f_max - f_i, axis=1)
+            d_minus = np.expand_dims(f_min - f_i, axis=1)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                alpha = np.where(
+                    delta > 0,
+                    np.minimum(1.0, d_plus / delta),
+                    np.where(delta < 0, np.minimum(1.0, d_minus / delta), 1.0),
+                )
+            alpha = np.where(np.isfinite(alpha), alpha, 1.0)
+            alpha = np.clip(np.min(alpha, axis=1), 0.0, 1.0)  # (N_unique, ...)
+            gradf_neighbors = (gradf_unique * alpha[..., None])[inv]
+        else:
+            gradf_neighbors = gradf.take(target_neighbors, axis=0)
         f_target += np.einsum("ij,i...j->i...", dx, gradf_neighbors)
         if order == 1:
             return f_target
@@ -447,7 +488,7 @@ class Meshoid:
             )  # mixed terms
         return f_target
 
-    def Slice(self, f, size=None, plane="z", center=None, res: int = 128, order: int = 0, return_grid: bool = False):
+    def Slice(self, f, size=None, plane="z", center=None, res: int = 128, order: int = 0, return_grid: bool = False, slope_limiter: bool = False):
         """
         Gives the value of a function f deposited on a 2D Cartesian grid slicing
         through the 3D domain.
@@ -470,6 +511,8 @@ class Meshoid:
             Order of the reconstruction on the slice: 0, 1, or 2 (default: 1)
         return_grid : bool, optional
             Also return the grid coordinates corresponding to the slice
+        slope_limiter : bool, optional
+            Whether to apply the Barth-Jespersen slope limiter (default False)
 
         Returns
         -------
@@ -480,8 +523,6 @@ class Meshoid:
             center = self.center
         if size is None:
             size = self.L
-        if self.tree is None:
-            self.TreeUpdate()
 
         x = np.linspace(-size / 2, size / 2, res + 1)
         x = (x[1:] + x[:-1]) / 2  # cell centers
@@ -494,7 +535,7 @@ class Meshoid:
         elif plane == "y":
             slicegrid = np.c_[x.flatten(), np.zeros(res * res), y.flatten()] + center
 
-        f_grid = self.Reconstruct(f, slicegrid, order)
+        f_grid = self.Reconstruct(f, slicegrid, order, slope_limiter=slope_limiter)
         shape = res, res
         if len(f.shape) > 1:
             shape += f.shape[1:]
@@ -502,7 +543,7 @@ class Meshoid:
             return x, y, f_grid.reshape(shape)
         return f_grid.reshape(shape)
 
-    def InterpToGrid(self, f, size=None, center=None, res: int = 128, order: int = 1, return_grid: bool = False):
+    def InterpToGrid(self, f, size=None, center=None, res: int = 128, order: int = 1, return_grid: bool = False, slope_limiter: bool = False):
         """
         Interpolates the quantity f defined on the meshoid to the cell centers
         of a 3D Cartesian grid
@@ -522,6 +563,8 @@ class Meshoid:
             Resolution of the grid - default 128
         order : int, optional
             Order of the reconstruction on the slice: 0, 1, or 2 (default: 1)
+        slope_limiter : bool, optional
+            Whether to apply the Barth-Jespersen slope limiter (default False)
 
         Returns
         -------
@@ -538,7 +581,7 @@ class Meshoid:
         x = (x[1:] + x[:-1]) / 2
         X, Y, Z = np.meshgrid(x, x, x, indexing="ij")
         gridcoords = np.c_[X.flatten(), Y.flatten(), Z.flatten()] + center
-        f_grid = self.Reconstruct(f, gridcoords, order)
+        f_grid = self.Reconstruct(f, gridcoords, order, slope_limiter=slope_limiter)
         shape = (res, res, res)
         if len(f.shape) > 1:
             shape += f.shape[1:]
