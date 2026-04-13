@@ -92,17 +92,18 @@ class Meshoid:
         self.m = m[self.particle_mask]
 
         self._ngb = None
-        self.kernel_radius = kernel_radius
+        self._ngbdist = None
+        self._kernel_radius = kernel_radius
+        self._density = None
+        self._vol = None
         self.dweights = None
         self.d2weights = None
         self.dweights_3rdorder = None
         self.sliceweights = None
 
-        if self.kernel_radius is None:
-            self.TreeUpdate()
-        else:
-            self.vol = self.volnorm * self.kernel_radius**self.dim / self.des_ngb
-            self.density = self.m / self.vol
+        if self._kernel_radius is not None:
+            self._vol = self.volnorm * self._kernel_radius**self.dim / self.des_ngb
+            self._density = self.m / self._vol
 
     @property
     def tree(self):
@@ -123,6 +124,46 @@ class Meshoid:
     @ngb.setter
     def ngb(self, value):
         self._ngb = value
+
+    @property
+    def ngbdist(self):
+        if self._ngbdist is None:
+            self.TreeUpdate()
+        return self._ngbdist
+
+    @ngbdist.setter
+    def ngbdist(self, value):
+        self._ngbdist = value
+
+    @property
+    def kernel_radius(self):
+        if self._kernel_radius is None:
+            self.TreeUpdate()
+        return self._kernel_radius
+
+    @kernel_radius.setter
+    def kernel_radius(self, value):
+        self._kernel_radius = value
+
+    @property
+    def density(self):
+        if self._density is None:
+            self.TreeUpdate()
+        return self._density
+
+    @density.setter
+    def density(self, value):
+        self._density = value
+
+    @property
+    def vol(self):
+        if self._vol is None:
+            self.TreeUpdate()
+        return self._vol
+
+    @vol.setter
+    def vol(self, value):
+        self._vol = value
 
     def printv(self, *a, **k):
         if self.verbose:
@@ -186,8 +227,6 @@ class Meshoid:
         self.vol = self.m[self.particle_mask] / self.density
 
     def get_kernel_weights(self):
-        if self.ngbdist is None or self.kernel_radius is None:
-            self.TreeUpdate()
         q = self.ngbdist / self.kernel_radius[:, None]
         K = Kernel_v(q)
         return K / np.sum(K, axis=1)[:, None]
@@ -220,8 +259,6 @@ class Meshoid:
         -------
         self.ngbdist - (N,Nngb) array of distances to nearest neighbors of each particle.
         """
-        if self.ngbdist is None:
-            self.TreeUpdate()
         return self.ngbdist
 
     def SmoothingLength(self):
@@ -232,8 +269,6 @@ class Meshoid:
         -------
         (N,) array of particle smoothing lengths
         """
-        if self.kernel_radius is None:
-            self.TreeUpdate()
         return self.kernel_radius
 
     def Density(self):
@@ -244,8 +279,6 @@ class Meshoid:
         -------
         self.density - (N,) array of particle densities
         """
-        if self.density is None:
-            self.TreeUpdate()
         return self.density
 
     def D(self, f, order=1, weighted=True):
@@ -346,10 +379,6 @@ class Meshoid:
         Returns:
         integral of f over the domain
         """
-        if self.kernel_radius is None:
-            self.TreeUpdate()
-        elif self.vol is None:
-            self.vol = self.volnorm * self.kernel_radius**self.dim
         return np.einsum("i,i...->...", self.vol, f[self.particle_mask], optimize="optimal")
 
     def KernelVariance(self, f):
