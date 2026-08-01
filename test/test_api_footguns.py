@@ -70,6 +70,28 @@ def test_particle_mask_matches_unmasked_subset():
     assert np.allclose(masked, full[idx])
 
 
+def test_gradient_of_coordinates_with_particle_mask():
+    """Gradient of the coordinate function on a random particle subset must be
+    the identity matrix at each masked particle (least-squares gradients are
+    exact for linear functions), and must match the full-set computation at
+    those particles. Exercises particle_mask through the derivative path."""
+    rng = np.random.default_rng(5)
+    N, dim = 600, 3
+    x = rng.random((N, dim))
+    idx = np.sort(rng.choice(N, 120, replace=False))
+    mask = np.zeros(N, bool)
+    mask[idx] = True
+
+    J = Meshoid(x, particle_mask=mask).D(x)  # Jacobian d x_i / d x_j at masked particles
+    assert J.shape == (idx.size, dim, dim)
+    assert np.allclose(J, np.broadcast_to(np.eye(dim), J.shape), atol=1e-8)
+
+    # masking selects *which* particles are reported; using the full set as
+    # neighbors, so results equal the corresponding entries of the full gradient
+    J_full = Meshoid(x).D(x)
+    assert np.allclose(J, J_full[idx], atol=1e-8)
+
+
 def test_multigrid_bad_resolution_raises_valueerror():
     """Non-power-of-2 multigrid resolution raises ValueError with the intended
     message, not `TypeError: exceptions must derive from BaseException`."""
