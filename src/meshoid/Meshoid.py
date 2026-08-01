@@ -803,7 +803,7 @@ class Meshoid:
             center,
             size,
             res,
-            self.boxsize,
+            -1.0 if self.boxsize is None else self.boxsize,
         )
 
     def Projection(self, f, size=None, center=None, res=128, smooth_fac=1.0):
