@@ -37,7 +37,7 @@ def GridSurfaceDensityMultigrid(
 ):
     box_size = _normalize_box_size(box_size)
     if not ((res != 0) and (res & (res - 1) == 0)):
-        raise ("Multigrid resolution must be a power of 2")
+        raise ValueError("Multigrid resolution must be a power of 2")
     res_bins = size / 2 ** np.arange(0, round(np.log2(res) + 1))
     res_bins[0] = np.inf
     res_bins[-1] = 0
@@ -319,7 +319,7 @@ def Grid_PPZ_DataCube_Multigrid(f, x, h, center, size, z, h_z, res, box_size=Non
     """Faster, multigrid version of Grid_PPZ_DataCube. Since the third dimension is separate from the spatial ones, we only do the multigrid approach on the spatial grid. See Grid_PPZ_DataCube for desription of inputs"""
     box_size = _normalize_box_size(box_size)
     if not ((res[0] != 0) and (res[0] & (res[0] - 1) == 0)):
-        raise ("Multigrid resolution must be a power of 2")
+        raise ValueError("Multigrid resolution must be a power of 2")
     res_bins = size[0] / 2 ** np.arange(0, round(np.log2(res[0]) + 1))
     res_bins[0] = np.inf
     res_bins[-1] = 0
