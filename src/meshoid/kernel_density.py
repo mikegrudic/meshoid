@@ -106,6 +106,28 @@ def HsmlIter(neighbor_dists, des_ngb, dim=3, error_norm=1e-6):
     n_ngb = 0.0
     bound_coeff = 1.0 / (1 - (2 * norm) ** (-1.0 / 3))
     for i in prange(N):
+        # Count exactly-coincident neighbors (zero distance, incl. the particle
+        # itself). As h -> 0+ only these survive the kernel sum, contributing
+        # norm * n_coincident to the effective neighbor number. If that already
+        # meets/exceeds des_ngb the root-find has no positive solution and would
+        # collapse h to zero (giving infinite density downstream). Coincident
+        # points don't make the smoothing length ill-defined, though: fall back
+        # to the radius that geometrically encloses des_ngb neighbors, reaching
+        # past the coincident block to the nearest distinct neighbor if needed.
+        n_coincident = 0
+        for j in range(num_ngb):
+            if neighbor_dists[i, j] > 0:
+                break
+            n_coincident += 1
+        if norm * n_coincident >= des_ngb:
+            idx = des_ngb - 1
+            if n_coincident > idx:
+                idx = n_coincident
+            if idx > num_ngb - 1:
+                idx = num_ngb - 1
+            hsml[i] = neighbor_dists[i, idx]
+            continue
+
         upper = neighbor_dists[i, des_ngb - 1] * bound_coeff
         lower = neighbor_dists[i, 1]
         error = 1e100

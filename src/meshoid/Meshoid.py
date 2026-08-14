@@ -89,7 +89,10 @@ class Meshoid:
         if m is None:
             # assume unit total mass
             m = np.repeat(1.0 / self.N, self.N)
-        self.m = m[self.particle_mask]
+        # keep masses aligned with the full position array (like self.pos); the
+        # particle_mask is applied where masked quantities are computed (see
+        # TreeUpdate). Masking here as well would double-index self.m.
+        self.m = m
 
         self._ngb = None
         self._ngbdist = None
@@ -650,7 +653,7 @@ class Meshoid:
         else:
             return f_grid.reshape(shape)
 
-    def DepositToGrid(self, f, weights=None, size=None, center=None, res=128):
+    def DepositToGrid(self, f, size=None, center=None, res=128):
         """
         Deposits a conserved quantity (e.g. mass, momentum, energy) to a 3D
         grid and returns the density of that quantity on that grid
@@ -659,8 +662,6 @@ class Meshoid:
         ----------
         f : array_like
             Shape (N,) array of conserved quantity values colocated at the particle coordinates
-        weights : array_like, optional
-            Shape (N,) array of weights for kernel-weighted interpolation
         size : float, optional
             Side length of the grid - defaults to the self.L value: either 2
             times the 90th percentile radius from the center, or the specified
@@ -679,8 +680,6 @@ class Meshoid:
             center = self.center
         if size is None:
             size = self.L
-        if weights is None:
-            weights = np.ones(self.N)
 
         h = np.clip(self.kernel_radius, size / (res - 1), 1e100)
 
@@ -758,6 +757,8 @@ class Meshoid:
         """
         if f is None:
             f = self.m
+        if masses is None:
+            masses = self.m
         if center is None:
             center = self.center
         if size is None:
