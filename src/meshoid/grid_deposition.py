@@ -181,7 +181,7 @@ def _run_parallel_splatting(splatting_func, f, x, h, center, size, res, box_size
 
 
 
-@njit(fastmath=True, error_model="numpy", cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True, nogil=True)
 def GridSurfaceDensity_core(f, x, h, center, size, res=128, box_size=-1):
     """
     Computes the surface density of conserved quantity f colocated at positions x with smoothing lengths h. E.g.
@@ -229,7 +229,7 @@ def GridSurfaceDensity_core(f, x, h, center, size, res=128, box_size=-1):
     return grid
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, cache=True, nogil=True)
 def GridSurfaceDensity_conservative_core(f, x, h, center, size, res=128, box_size=-1):
     """
     Computes the surface density of conserved quantity f colocated at positions x with smoothing lengths h.
@@ -549,7 +549,7 @@ def GridDensity(f, x, h, center, size, res=128, box_size=-1.0, parallel=True):
         return GridDensity_core(f, x, h, center, size, res, box_size)
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, cache=True, nogil=True)
 def GridDensity_core(f, x, h, center, size, res=128, box_size=-1.0):
     """
     Estimates the density of the conserved quantity f possessed by each particle (e.g. mass, momentum, energy) on a 3D grid
@@ -618,3 +618,178 @@ def GridDensity_core(f, x, h, center, size, res=128, box_size=-1.0):
                     if total_wt > 0:
                         grid[gx % res, gy % res, gz % res] += f[i] * kernel / total_wt
     return grid / (dx * dx * dx)
+
+
+@njit(fastmath=True, error_model="numpy", cache=True, nogil=True)
+def GridSurfaceDensityMulti_core(f, x, h, center, size, res=128, box_size=-1):
+    """
+    Multi-channel version of GridSurfaceDensity_core: deposits k conserved
+    quantities in a single traversal, evaluating the kernel weight once per
+    particle-pixel pair.
+
+    Arguments:
+    f - (N,k) array of the conserved quantities to compute surface densities of
+    x - (N,3) array of particle positions
+    h - (N,) array of particle smoothing lengths
+    center - (2,) array containing the coordinates of the center of the map
+    size - side-length of the map
+    res - resolution of the grid
+
+    Returns (res,res,k) array; [:,:,c] equals GridSurfaceDensity_core(f[:,c],...).
+    """
+    dx = size / (res - 1)
+
+    x2d = x[:, :2] - center[:2] + size / 2
+
+    k = f.shape[1]
+    grid = np.zeros((res, res, k))
+
+    N = len(x)
+    for i in range(N):
+        xs = x2d[i]
+        hs = h[i]
+        hs_sqr = hs * hs
+        hinv = 1 / hs
+        h2inv = hinv * hinv
+
+        gxmin = max(int((xs[0] - hs) / dx + 1), 0)
+        gxmax = min(int((xs[0] + hs) / dx), res - 1)
+        gymin = max(int((xs[1] - hs) / dx + 1), 0)
+        gymax = min(int((xs[1] + hs) / dx), res - 1)
+
+        for gx in range(gxmin, gxmax + 1):
+            delta_x_sqr = xs[0] - gx * dx
+            delta_x_sqr *= delta_x_sqr
+            for gy in range(gymin, gymax + 1):
+                delta_y_sqr = xs[1] - gy * dx
+                delta_y_sqr *= delta_y_sqr
+                r_sqr = delta_x_sqr + delta_y_sqr
+                if r_sqr > hs_sqr:
+                    continue
+                q = np.sqrt(r_sqr) * hinv
+                w = kernel2d(q) * h2inv
+                for c in range(k):
+                    grid[gx, gy, c] += w * f[i, c]
+    return grid
+
+
+def _run_parallel_splatting_multi(splatting_func, f, x, h, center, size, res, box_size):
+    """Thread-parallel runner for multi-channel splat cores returning (res,res,k).
+
+    Mirrors _run_parallel_splatting; kept separate so that helper's line count
+    (and thus the numba cache keys of the cores below it) stays untouched.
+    """
+    nthreads = get_num_threads()
+    fc = np.array_split(f, nthreads, 0)
+    xc = np.array_split(x, nthreads, 0)
+    hc = np.array_split(h, nthreads, 0)
+    results = [None] * nthreads
+
+    def _worker(i):
+        results[i] = splatting_func(fc[i], xc[i], hc[i], center, size, res, box_size)
+
+    from threading import Thread
+
+    threads = []
+    for i in range(nthreads):
+        t = Thread(target=_worker, args=(i,))
+        t.start()
+        threads.append(t)
+    for t in threads:
+        t.join()
+
+    out = np.zeros((res, res, f.shape[1]))
+    for r in results:
+        out += r
+    return out
+
+
+def GridSurfaceDensityMulti(f, x, h, center, size, res=128, box_size=-1, parallel=True):
+    """
+    Computes surface densities of k conserved quantities in one particle
+    traversal, evaluating each particle's kernel once instead of k times.
+    Equivalent to stacking k calls to GridSurfaceDensity (conservative=False).
+
+    Parameters
+    ----------
+    f: array_like
+        Shape (N,k) array of the conserved quantities to deposit, one column
+        per channel (e.g. np.c_[m, m*vz, m*vz**2])
+    x: array_like
+        Shape (N,3) array of particle positions
+    h: array_like
+        Shape (N,) array of particle smoothing lengths
+    center: array_like
+        Shape (2,) array containing the coordinates of the center of the map
+    size: float
+        Side-length of the map
+    res: int, optional
+        Resolution of the map
+    parallel: boolean, optional
+        Whether to run in parallel (default True)
+
+    Returns
+    -------
+    (res,res,k) array; [:,:,c] is the surface density of f[:,c]
+    """
+    if np.ndim(f) != 2:
+        raise ValueError("GridSurfaceDensityMulti needs an (N,k) weights array; use GridSurfaceDensity for (N,)")
+    f = np.ascontiguousarray(f, dtype=np.float64)
+    core = GridSurfaceDensity3_core if f.shape[1] == 3 else GridSurfaceDensityMulti_core
+    if parallel:
+        return _run_parallel_splatting_multi(core, f, x, h, center, size, res, box_size)
+    return core(f, x, h, center, size, res, box_size)
+
+
+@njit(fastmath=True, error_model="numpy", cache=True, nogil=True)
+def GridSurfaceDensity3_core(f, x, h, center, size, res=128, box_size=-1):
+    """
+    k=3 specialization of GridSurfaceDensityMulti_core: three scalar
+    accumulator grids keep the pixel loop vectorizable, which the generic
+    runtime-k channel loop defeats (measured at no speedup over separate
+    single-channel splats).
+    """
+    dx = size / (res - 1)
+
+    x2d = x[:, :2] - center[:2] + size / 2
+
+    grid0 = np.zeros((res, res))
+    grid1 = np.zeros((res, res))
+    grid2 = np.zeros((res, res))
+
+    N = len(x)
+    for i in range(N):
+        xs = x2d[i]
+        hs = h[i]
+        hs_sqr = hs * hs
+        hinv = 1 / hs
+        h2inv = hinv * hinv
+        f0 = f[i, 0] * h2inv
+        f1 = f[i, 1] * h2inv
+        f2 = f[i, 2] * h2inv
+
+        gxmin = max(int((xs[0] - hs) / dx + 1), 0)
+        gxmax = min(int((xs[0] + hs) / dx), res - 1)
+        gymin = max(int((xs[1] - hs) / dx + 1), 0)
+        gymax = min(int((xs[1] + hs) / dx), res - 1)
+
+        for gx in range(gxmin, gxmax + 1):
+            delta_x_sqr = xs[0] - gx * dx
+            delta_x_sqr *= delta_x_sqr
+            for gy in range(gymin, gymax + 1):
+                delta_y_sqr = xs[1] - gy * dx
+                delta_y_sqr *= delta_y_sqr
+                r_sqr = delta_x_sqr + delta_y_sqr
+                if r_sqr > hs_sqr:
+                    continue
+                q = np.sqrt(r_sqr) * hinv
+                w = kernel2d(q)
+                grid0[gx, gy] += w * f0
+                grid1[gx, gy] += w * f1
+                grid2[gx, gy] += w * f2
+
+    out = np.empty((res, res, 3))
+    out[:, :, 0] = grid0
+    out[:, :, 1] = grid1
+    out[:, :, 2] = grid2
+    return out

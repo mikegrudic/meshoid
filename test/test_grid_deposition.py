@@ -42,3 +42,58 @@ def test_grid_average_constant_field():
     finite = np.isfinite(ga)
     assert finite.any()
     assert np.allclose(ga[finite], 3.5)
+
+
+def test_multi_matches_single_serial():
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    F = np.column_stack([f, 2 * f, f * f, 0 * f])
+    multi = GridSurfaceDensityMulti(F, x, h, center, size, res, parallel=False)
+    for c in range(F.shape[1]):
+        single = GridSurfaceDensity(F[:, c], x, h, center, size, res, parallel=False)
+        assert np.allclose(multi[:, :, c], single, rtol=1e-12, atol=0)
+    assert np.all(multi[:, :, 3] == 0)  # zero channel stays exactly zero (no channel bleed)
+
+
+def test_multi_parallel_matches_serial():
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    F = np.column_stack([f, f * f])
+    g_serial = GridSurfaceDensityMulti(F, x, h, center, size, res, parallel=False)
+    g_parallel = GridSurfaceDensityMulti(F, x, h, center, size, res, parallel=True)
+    assert np.allclose(g_serial, g_parallel)
+
+
+def test_multi_single_channel_matches_1d():
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    multi = GridSurfaceDensityMulti(f[:, None], x, h, center, size, res, parallel=False)
+    assert multi.shape == (res, res, 1)
+    single = GridSurfaceDensity(f, x, h, center, size, res, parallel=False)
+    assert np.allclose(multi[:, :, 0], single, rtol=1e-12, atol=0)
+
+
+def test_multi_rejects_1d_weights():
+    import pytest
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    with pytest.raises(ValueError):
+        GridSurfaceDensityMulti(f, x, h, center, size, res)
+
+
+def test_multi_k3_specialized_matches_single():
+    # k=3 dispatches to GridSurfaceDensity3_core, not the generic core
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    F = np.column_stack([f, 2 * f, f * f])
+    for parallel in (False, True):
+        multi = GridSurfaceDensityMulti(F, x, h, center, size, res, parallel=parallel)
+        assert multi.shape == (res, res, 3)
+        for c in range(3):
+            single = GridSurfaceDensity(F[:, c], x, h, center, size, res, parallel=False)
+            assert np.allclose(multi[:, :, c], single, rtol=1e-12, atol=0)

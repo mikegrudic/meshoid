@@ -106,6 +106,11 @@ class Meshoid:
             self._density = self.m / self._vol
 
     @property
+    def _grid_boxsize(self):
+        """Returns boxsize as a float for numba grid functions; -1.0 signals no periodic wrapping."""
+        return self.boxsize if self.boxsize is not None else -1.0
+
+    @property
     def tree(self):
         if self._tree is None:
             self.BuildTree()
@@ -679,7 +684,7 @@ class Meshoid:
 
         h = np.clip(self.kernel_radius, size / (res - 1), 1e100)
 
-        f_grid = GridDensity(f, self.pos, h, center, size, res=res, box_size=self.boxsize)
+        f_grid = GridDensity(f, self.pos, h, center, size, res=res, box_size=self._grid_boxsize)
 
         return f_grid
 
@@ -723,7 +728,7 @@ class Meshoid:
             center,
             size,
             res,
-            self.boxsize,
+            self._grid_boxsize,
             parallel=(False if self.n_jobs == 1 else True),
             conservative=conservative,
         )
@@ -764,7 +769,7 @@ class Meshoid:
             center,
             size,
             res,
-            self.boxsize,
+            self._grid_boxsize,
             (False if self.n_jobs == 1 else True),
             conservative,
         )
@@ -803,7 +808,7 @@ class Meshoid:
             center,
             size,
             res,
-            self.boxsize,
+            self._grid_boxsize,
         )
 
     def Projection(self, f, size=None, center=None, res=128, smooth_fac=1.0):
@@ -840,7 +845,7 @@ class Meshoid:
             center,
             size,
             res,
-            self.boxsize,
+            self._grid_boxsize,
         )
 
     def KDE(self, grid, bandwidth=None):
