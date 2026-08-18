@@ -35,7 +35,7 @@ you will want a few GB of RAM.
 .. code:: ipython3
 
     from os.path import isfile
-    from os import system
+    from urllib.request import urlretrieve
     
     SNAPNUM = 2590
     SNAPFILE = f"snapshot_{SNAPNUM}.hdf5"
@@ -45,8 +45,9 @@ you will want a few GB of RAM.
         f"STARFORGE_v1.2/M2e4_R10/{RUN}/output/{SNAPFILE}"
     )
     
-    if not isfile(SNAPFILE):  # 3.1GB - feel free to use your own snapshots!
-        system(f"wget -O {SNAPFILE} {URL}")
+    if not isfile(SNAPFILE):  # feel free to use your own snapshots instead!
+        print(f"downloading {SNAPFILE} (3.1 GB), this will take a while...")
+        urlretrieve(URL, SNAPFILE)
 
 GIZMO records its unit system in the snapshot header, so read it instead
 of assuming - this run stores velocities in m/s, not the more usual
@@ -164,8 +165,8 @@ beat 32 CPU threads on a small one.
 
 .. parsed-literal::
 
-    res = 800:  cpu 0.89s | float64 1.19s (0.7x, med. rel. diff 1e-15) | float32 1.16s (0.8x, med. rel. diff 8e-07)
-    res = 2048:  cpu 3.89s | float64 3.23s (1.2x, med. rel. diff 1e-15) | float32 1.59s (2.4x, med. rel. diff 8e-07)
+    res = 800:  cpu 1.01s | float64 1.67s (0.6x, med. rel. diff 1e-15) | float32 1.18s (0.9x, med. rel. diff 8e-07)
+    res = 2048:  cpu 4.10s | float64 3.30s (1.2x, med. rel. diff 1e-15) | float32 1.56s (2.6x, med. rel. diff 8e-07)
 
 
 Slices
