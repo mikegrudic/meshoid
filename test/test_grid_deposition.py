@@ -76,6 +76,46 @@ def test_multi_single_channel_matches_1d():
     assert np.allclose(multi[:, :, 0], single, rtol=1e-12, atol=0)
 
 
+def test_multi_periodic_matches_single():
+    """Periodic multi-field deposition must match stacked single-field calls,
+    for the generic core (k=2) and the k=3 specialization alike."""
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    for k in (2, 3):
+        F = np.column_stack([(c + 1) * f for c in range(k)])
+        for parallel in (False, True):
+            multi = GridSurfaceDensityMulti(F, x, h, center, size, res, 1.0, parallel=parallel)
+            for c in range(k):
+                single = GridSurfaceDensity(
+                    F[:, c], x, h, center, size, res, box_size=1.0, parallel=False
+                )
+                assert np.allclose(multi[:, :, c], single, rtol=1e-12, atol=0)
+
+
+def test_multi_periodic_differs_from_nonperiodic():
+    """Guards against box_size being silently ignored: wrapping mass in from
+    across the boundary must change the map."""
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    F = np.column_stack([f, 2 * f])
+    periodic = GridSurfaceDensityMulti(F, x, h, center, size, res, 1.0)
+    free = GridSurfaceDensityMulti(F, x, h, center, size, res)
+    assert periodic.sum() > free.sum() * 1.01
+
+
+def test_multi_accepts_box_size_none():
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    F = np.column_stack([f, 2 * f])
+    assert np.allclose(
+        GridSurfaceDensityMulti(F, x, h, center, size, res, None),
+        GridSurfaceDensityMulti(F, x, h, center, size, res, -1),
+    )
+
+
 def test_multi_rejects_1d_weights():
     import pytest
     from meshoid.grid_deposition import GridSurfaceDensityMulti

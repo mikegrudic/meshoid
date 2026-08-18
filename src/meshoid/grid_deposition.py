@@ -779,42 +779,51 @@ def GridSurfaceDensityMulti_core(f, x, h, center, size, res=128, box_size=-1):
     center - (2,) array containing the coordinates of the center of the map
     size - side-length of the map
     res - resolution of the grid
+    box_size - size of the periodic domain (<= 0 disables periodicity)
 
     Returns (res,res,k) array; [:,:,c] equals GridSurfaceDensity_core(f[:,c],...).
     """
-    dx = size / (res - 1)
+    dx = size / res if box_size > 0 else size / (res - 1)
 
     x2d = x[:, :2] - center[:2] + size / 2
 
     k = f.shape[1]
     grid = np.zeros((res, res, k))
+    offsets = periodic_offsets(box_size)
+    n_off = offsets.shape[0]
 
     N = len(x)
     for i in range(N):
-        xs = x2d[i]
         hs = h[i]
         hs_sqr = hs * hs
         hinv = 1 / hs
         h2inv = hinv * hinv
 
-        gxmin = max(int((xs[0] - hs) / dx + 1), 0)
-        gxmax = min(int((xs[0] + hs) / dx), res - 1)
-        gymin = max(int((xs[1] - hs) / dx + 1), 0)
-        gymax = min(int((xs[1] + hs) / dx), res - 1)
-
-        for gx in range(gxmin, gxmax + 1):
-            delta_x_sqr = xs[0] - gx * dx
-            delta_x_sqr *= delta_x_sqr
-            for gy in range(gymin, gymax + 1):
-                delta_y_sqr = xs[1] - gy * dx
-                delta_y_sqr *= delta_y_sqr
-                r_sqr = delta_x_sqr + delta_y_sqr
-                if r_sqr > hs_sqr:
+        for a in range(n_off):
+            xs0 = x2d[i, 0] + offsets[a]
+            gxmin = max(int((xs0 - hs) / dx + 1), 0)
+            gxmax = min(int((xs0 + hs) / dx), res - 1)
+            if gxmin > gxmax:
+                continue
+            for b in range(n_off):
+                xs1 = x2d[i, 1] + offsets[b]
+                gymin = max(int((xs1 - hs) / dx + 1), 0)
+                gymax = min(int((xs1 + hs) / dx), res - 1)
+                if gymin > gymax:
                     continue
-                q = np.sqrt(r_sqr) * hinv
-                w = kernel2d(q) * h2inv
-                for c in range(k):
-                    grid[gx, gy, c] += w * f[i, c]
+                for gx in range(gxmin, gxmax + 1):
+                    delta_x_sqr = xs0 - gx * dx
+                    delta_x_sqr *= delta_x_sqr
+                    for gy in range(gymin, gymax + 1):
+                        delta_y_sqr = xs1 - gy * dx
+                        delta_y_sqr *= delta_y_sqr
+                        r_sqr = delta_x_sqr + delta_y_sqr
+                        if r_sqr > hs_sqr:
+                            continue
+                        q = np.sqrt(r_sqr) * hinv
+                        w = kernel2d(q) * h2inv
+                        for c in range(k):
+                            grid[gx, gy, c] += w * f[i, c]
     return grid
 
 
@@ -873,6 +882,9 @@ def GridSurfaceDensityMulti(
         Side-length of the map
     res: int, optional
         Resolution of the map
+    box_size: float, optional
+        Size of the periodic domain. If set, periodic boundary conditions are
+        applied and coordinates are assumed to run from [0, box_size).
     parallel: boolean, optional
         Whether to run in parallel (default True; ignored by the cuda backend)
     backend: str, optional
@@ -890,6 +902,7 @@ def GridSurfaceDensityMulti(
     if np.ndim(f) != 2:
         raise ValueError("GridSurfaceDensityMulti needs an (N,k) weights array; use GridSurfaceDensity for (N,)")
     _validate_backend(backend, dtype)
+    box_size = _normalize_box_size(box_size)
 
     if backend == "cuda":
         from .gpu_deposition import GridSurfaceDensityMulti_cuda
@@ -911,17 +924,18 @@ def GridSurfaceDensity3_core(f, x, h, center, size, res=128, box_size=-1):
     runtime-k channel loop defeats (measured at no speedup over separate
     single-channel splats).
     """
-    dx = size / (res - 1)
+    dx = size / res if box_size > 0 else size / (res - 1)
 
     x2d = x[:, :2] - center[:2] + size / 2
 
     grid0 = np.zeros((res, res))
     grid1 = np.zeros((res, res))
     grid2 = np.zeros((res, res))
+    offsets = periodic_offsets(box_size)
+    n_off = offsets.shape[0]
 
     N = len(x)
     for i in range(N):
-        xs = x2d[i]
         hs = h[i]
         hs_sqr = hs * hs
         hinv = 1 / hs
@@ -930,25 +944,32 @@ def GridSurfaceDensity3_core(f, x, h, center, size, res=128, box_size=-1):
         f1 = f[i, 1] * h2inv
         f2 = f[i, 2] * h2inv
 
-        gxmin = max(int((xs[0] - hs) / dx + 1), 0)
-        gxmax = min(int((xs[0] + hs) / dx), res - 1)
-        gymin = max(int((xs[1] - hs) / dx + 1), 0)
-        gymax = min(int((xs[1] + hs) / dx), res - 1)
-
-        for gx in range(gxmin, gxmax + 1):
-            delta_x_sqr = xs[0] - gx * dx
-            delta_x_sqr *= delta_x_sqr
-            for gy in range(gymin, gymax + 1):
-                delta_y_sqr = xs[1] - gy * dx
-                delta_y_sqr *= delta_y_sqr
-                r_sqr = delta_x_sqr + delta_y_sqr
-                if r_sqr > hs_sqr:
+        for a in range(n_off):
+            xs0 = x2d[i, 0] + offsets[a]
+            gxmin = max(int((xs0 - hs) / dx + 1), 0)
+            gxmax = min(int((xs0 + hs) / dx), res - 1)
+            if gxmin > gxmax:
+                continue
+            for b in range(n_off):
+                xs1 = x2d[i, 1] + offsets[b]
+                gymin = max(int((xs1 - hs) / dx + 1), 0)
+                gymax = min(int((xs1 + hs) / dx), res - 1)
+                if gymin > gymax:
                     continue
-                q = np.sqrt(r_sqr) * hinv
-                w = kernel2d(q)
-                grid0[gx, gy] += w * f0
-                grid1[gx, gy] += w * f1
-                grid2[gx, gy] += w * f2
+                for gx in range(gxmin, gxmax + 1):
+                    delta_x_sqr = xs0 - gx * dx
+                    delta_x_sqr *= delta_x_sqr
+                    for gy in range(gymin, gymax + 1):
+                        delta_y_sqr = xs1 - gy * dx
+                        delta_y_sqr *= delta_y_sqr
+                        r_sqr = delta_x_sqr + delta_y_sqr
+                        if r_sqr > hs_sqr:
+                            continue
+                        q = np.sqrt(r_sqr) * hinv
+                        w = kernel2d(q)
+                        grid0[gx, gy] += w * f0
+                        grid1[gx, gy] += w * f1
+                        grid2[gx, gy] += w * f2
 
     out = np.empty((res, res, 3))
     out[:, :, 0] = grid0

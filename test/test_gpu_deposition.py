@@ -141,28 +141,15 @@ def test_cuda_multi_matches_cpu_single_per_channel(dtype, rtol, atol_frac, box_s
 
 
 @requires_cuda
-def test_cuda_multi_matches_cpu_multi_nonperiodic():
+@pytest.mark.parametrize("box_size", [-1, 1.0])
+def test_cuda_multi_matches_cpu_multi(box_size):
     from meshoid.grid_deposition import GridSurfaceDensityMulti
 
     f, x, h, center, size, res = _setup()
     F = np.column_stack([f, 2 * f, f * f])
-    cpu = GridSurfaceDensityMulti(F, x, h, center, size, res)
-    gpu = GridSurfaceDensityMulti(F, x, h, center, size, res, backend="cuda")
+    cpu = GridSurfaceDensityMulti(F, x, h, center, size, res, box_size)
+    gpu = GridSurfaceDensityMulti(F, x, h, center, size, res, box_size, backend="cuda")
     assert np.allclose(gpu, cpu, rtol=RTOL_F64, atol=RTOL_F64 * cpu.max())
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="the cpu multi-field cores accept box_size but never use it, so they "
-    "silently return the non-periodic deposition",
-)
-def test_cpu_multi_honors_periodicity():
-    from meshoid.grid_deposition import GridSurfaceDensityMulti
-
-    f, x, h, center, size, res = _setup()
-    multi = GridSurfaceDensityMulti(np.column_stack([f, 2 * f]), x, h, center, size, res, 1.0)
-    single = GridSurfaceDensity(f, x, h, center, size, res, box_size=1.0)
-    assert np.allclose(multi[:, :, 0], single, rtol=1e-12, atol=0)
 
 
 @requires_cuda
