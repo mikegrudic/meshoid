@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meshoid"
-version = "1.50.1"
+version = "1.51.0"
 authors = [
   { name="Mike Grudić", email="mike.grudic@gmail.com" },
 ]
@@ -21,6 +21,11 @@ dependencies = [
 
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
+
+# numba.cuda is provided by the separate numba-cuda package, needed only for
+# the optional backend="cuda" deposition
+[project.optional-dependencies]
+cuda = ["numba-cuda"]
 
 [project.urls]
 Homepage = "https://github.com/mikegrudic/meshoid"

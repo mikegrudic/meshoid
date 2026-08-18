@@ -32,6 +32,18 @@ def _normalize_box_size(box_size):
     return float(box_size)
 
 
+def _import_gpu_deposition():
+    """Import the optional cuda backend, naming the fix if numba.cuda (supplied
+    by the separate numba-cuda package) is unavailable."""
+    try:
+        from . import gpu_deposition
+    except ImportError as exc:
+        raise ImportError(
+            "backend='cuda' requires the numba-cuda package: pip install meshoid[cuda]"
+        ) from exc
+    return gpu_deposition
+
+
 def _validate_backend(backend, dtype):
     """Shared backend/dtype validation for the deposition wrappers."""
     if backend not in ("cpu", "cuda"):
@@ -137,9 +149,8 @@ def GridSurfaceDensity(
     if backend == "cuda":
         if conservative:
             raise NotImplementedError("the cuda backend implements only the non-conservative deposition")
-        from .gpu_deposition import GridSurfaceDensity_cuda
-
-        return GridSurfaceDensity_cuda(f, x, h, center, size, res, box_size, dtype=dtype)
+        gpu = _import_gpu_deposition()
+        return gpu.GridSurfaceDensity_cuda(f, x, h, center, size, res, box_size, dtype=dtype)
 
     if conservative:
         core = GridSurfaceDensity_conservative_core
@@ -905,9 +916,8 @@ def GridSurfaceDensityMulti(
     box_size = _normalize_box_size(box_size)
 
     if backend == "cuda":
-        from .gpu_deposition import GridSurfaceDensityMulti_cuda
-
-        return GridSurfaceDensityMulti_cuda(f, x, h, center, size, res, box_size, dtype=dtype)
+        gpu = _import_gpu_deposition()
+        return gpu.GridSurfaceDensityMulti_cuda(f, x, h, center, size, res, box_size, dtype=dtype)
 
     f = np.ascontiguousarray(f, dtype=np.float64)
     core = GridSurfaceDensity3_core if f.shape[1] == 3 else GridSurfaceDensityMulti_core

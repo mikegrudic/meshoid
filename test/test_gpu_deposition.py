@@ -7,6 +7,8 @@ Tolerances below sit an order of magnitude above the measured worst case
 (4e-15 and 7e-6) and far below any algorithmic discrepancy.
 """
 
+import sys
+
 import numpy as np
 import pytest
 
@@ -194,6 +196,19 @@ def test_cpu_rejects_float32():
     f, x, h, center, size, res = _setup()
     with pytest.raises(ValueError, match="float64"):
         GridSurfaceDensity(f, x, h, center, size, res, dtype=np.float32)
+
+
+def test_cuda_backend_reports_missing_numba_cuda(monkeypatch):
+    """Without numba-cuda installed the error must name the install fix, not
+    surface a bare import failure."""
+    import meshoid
+
+    # both, or the already-imported submodule resolves as a package attribute
+    monkeypatch.delattr(meshoid, "gpu_deposition", raising=False)
+    monkeypatch.setitem(sys.modules, "meshoid.gpu_deposition", None)
+    f, x, h, center, size, res = _setup()
+    with pytest.raises(ImportError, match="numba-cuda"):
+        GridSurfaceDensity(f, x, h, center, size, res, backend="cuda")
 
 
 def test_unknown_backend_raises():
