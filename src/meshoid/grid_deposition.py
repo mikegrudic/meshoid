@@ -32,6 +32,17 @@ def _normalize_box_size(box_size):
     return float(box_size)
 
 
+def _validate_backend(backend, dtype):
+    """Shared backend/dtype validation for the deposition wrappers."""
+    if backend not in ("cpu", "cuda"):
+        raise ValueError(f"backend must be 'cpu' or 'cuda', got {backend!r}")
+    if backend == "cpu" and np.dtype(dtype) != np.float64:
+        raise ValueError(
+            f"the cpu backend always deposits in float64, got dtype={np.dtype(dtype)}; "
+            "use backend='cuda' for float32"
+        )
+
+
 def GridSurfaceDensityMultigrid(
     f, x, h, center, size, res=128, box_size=None, N_grid_kernel=8, parallel=True, conservative=False
 ):
@@ -121,6 +132,7 @@ def GridSurfaceDensity(
         rate) for ~1e-6 relative error, while on CPU it measures no faster.
     """
     box_size = _normalize_box_size(box_size)
+    _validate_backend(backend, dtype)
 
     if backend == "cuda":
         if conservative:
@@ -128,13 +140,6 @@ def GridSurfaceDensity(
         from .gpu_deposition import GridSurfaceDensity_cuda
 
         return GridSurfaceDensity_cuda(f, x, h, center, size, res, box_size, dtype=dtype)
-    if backend != "cpu":
-        raise ValueError(f"backend must be 'cpu' or 'cuda', got {backend!r}")
-    if np.dtype(dtype) != np.float64:
-        raise ValueError(
-            f"the cpu backend always deposits in float64, got dtype={np.dtype(dtype)}; "
-            "use backend='cuda' for float32"
-        )
 
     if conservative:
         core = GridSurfaceDensity_conservative_core
@@ -844,11 +849,14 @@ def _run_parallel_splatting_multi(splatting_func, f, x, h, center, size, res, bo
     return out
 
 
-def GridSurfaceDensityMulti(f, x, h, center, size, res=128, box_size=-1, parallel=True):
+def GridSurfaceDensityMulti(
+    f, x, h, center, size, res=128, box_size=-1, parallel=True, backend="cpu", dtype=np.float64
+):
     """
-    Computes surface densities of k conserved quantities in one particle
-    traversal, evaluating each particle's kernel once instead of k times.
-    Equivalent to stacking k calls to GridSurfaceDensity (conservative=False).
+    Computes surface densities of k conserved quantities, on the cpu backend in
+    one particle traversal evaluating each particle's kernel once instead of k
+    times. Equivalent to stacking k calls to GridSurfaceDensity
+    (conservative=False).
 
     Parameters
     ----------
@@ -866,7 +874,14 @@ def GridSurfaceDensityMulti(f, x, h, center, size, res=128, box_size=-1, paralle
     res: int, optional
         Resolution of the map
     parallel: boolean, optional
-        Whether to run in parallel (default True)
+        Whether to run in parallel (default True; ignored by the cuda backend)
+    backend: str, optional
+        "cpu" (default) or "cuda". The cuda backend runs one kernel launch per
+        channel, sharing a single upload of the positions and smoothing
+        lengths: fusing the channels into one launch amortizes only the kernel
+        arithmetic, which is not what the GPU deposition is bound by.
+    dtype: optional
+        Deposition precision, np.float64 (default) or np.float32 (cuda only)
 
     Returns
     -------
@@ -874,6 +889,13 @@ def GridSurfaceDensityMulti(f, x, h, center, size, res=128, box_size=-1, paralle
     """
     if np.ndim(f) != 2:
         raise ValueError("GridSurfaceDensityMulti needs an (N,k) weights array; use GridSurfaceDensity for (N,)")
+    _validate_backend(backend, dtype)
+
+    if backend == "cuda":
+        from .gpu_deposition import GridSurfaceDensityMulti_cuda
+
+        return GridSurfaceDensityMulti_cuda(f, x, h, center, size, res, box_size, dtype=dtype)
+
     f = np.ascontiguousarray(f, dtype=np.float64)
     core = GridSurfaceDensity3_core if f.shape[1] == 3 else GridSurfaceDensityMulti_core
     if parallel:

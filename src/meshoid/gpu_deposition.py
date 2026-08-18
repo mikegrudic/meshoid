@@ -127,6 +127,43 @@ def prepare_gsd_inputs(f, x, h, center, size, res, box_size=None, dtype=np.float
     )
 
 
+def GridSurfaceDensityMulti_cuda(
+    f, x, h, center, size, res=128, box_size=None, dtype=np.float64, threads_per_block=256
+):
+    """Deposit k fields, one launch of the single-field kernel per field, with
+    the positions and smoothing lengths uploaded once and reused.
+
+    Unlike the CPU path there is no fused k-field kernel: fusing amortizes the
+    kernel arithmetic, which is not what this kernel is bound by, and it
+    measured no faster than separate launches.
+
+    f is (N,k); returns (res,res,k), where [:,:,c] is the surface density of
+    f[:,c]. Other arguments are as GridSurfaceDensity_cuda.
+    """
+    f = np.asarray(f)
+    if f.ndim != 2:
+        raise ValueError(f"f must be an (N,k) weights array, got shape {f.shape}")
+    if len(f) != len(x) or len(f) != len(h):
+        raise ValueError(f"f, x, h must have matching lengths, got {len(f)}, {len(x)}, {len(h)}")
+    dtype = check_dtype(dtype)
+    _, x2d, hd, offsets, dx = prepare_gsd_inputs(f[:, 0], x, h, center, size, res, box_size, dtype)
+    kernel = get_gsd_kernel(dtype)
+
+    x_dev = cuda.to_device(x2d)
+    h_dev = cuda.to_device(hd)
+    off_dev = cuda.to_device(offsets)
+    blocks = (len(hd) + threads_per_block - 1) // threads_per_block
+
+    zeros = np.zeros((res, res), dtype=dtype)
+    out = np.empty((res, res, f.shape[1]), dtype=dtype)
+    for c in range(f.shape[1]):
+        f_dev = cuda.to_device(np.ascontiguousarray(f[:, c], dtype=dtype))
+        grid_dev = cuda.to_device(zeros)
+        kernel[blocks, threads_per_block](f_dev, x_dev, h_dev, off_dev, dx, res, grid_dev)
+        out[:, :, c] = grid_dev.copy_to_host()
+    return out
+
+
 def GridSurfaceDensity_cuda(
     f, x, h, center, size, res=128, box_size=None, dtype=np.float64, threads_per_block=256
 ):

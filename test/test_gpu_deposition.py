@@ -115,6 +115,87 @@ def test_meshoid_surface_density_rejects_cpu_float32():
 
 
 @requires_cuda
+@pytest.mark.parametrize(
+    "dtype, rtol, atol_frac", [(np.float64, RTOL_F64, RTOL_F64), (np.float32, RTOL_F32, 1e-5)]
+)
+@pytest.mark.parametrize("box_size", [-1, 1.0])
+def test_cuda_multi_matches_cpu_single_per_channel(dtype, rtol, atol_frac, box_size):
+    """The documented contract: channel c equals GridSurfaceDensity of column c.
+
+    Referenced against the single-field cpu deposition rather than the cpu
+    multi-field one, which ignores box_size (test_cpu_multi_honors_periodicity).
+    """
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    F = np.column_stack([f, 2 * f, f * f, 0 * f])
+    gpu = GridSurfaceDensityMulti(F, x, h, center, size, res, box_size, backend="cuda", dtype=dtype)
+    assert gpu.shape == (res, res, 4)
+    assert gpu.dtype == np.dtype(dtype)
+    for c in range(F.shape[1]):
+        cpu = GridSurfaceDensity(
+            F[:, c], x, h, center, size, res, box_size=(None if box_size <= 0 else box_size)
+        )
+        assert np.allclose(gpu[:, :, c], cpu, rtol=rtol, atol=atol_frac * cpu.max())
+    assert np.all(gpu[:, :, 3] == 0)  # zero channel stays exactly zero (no channel bleed)
+
+
+@requires_cuda
+def test_cuda_multi_matches_cpu_multi_nonperiodic():
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    F = np.column_stack([f, 2 * f, f * f])
+    cpu = GridSurfaceDensityMulti(F, x, h, center, size, res)
+    gpu = GridSurfaceDensityMulti(F, x, h, center, size, res, backend="cuda")
+    assert np.allclose(gpu, cpu, rtol=RTOL_F64, atol=RTOL_F64 * cpu.max())
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="the cpu multi-field cores accept box_size but never use it, so they "
+    "silently return the non-periodic deposition",
+)
+def test_cpu_multi_honors_periodicity():
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    multi = GridSurfaceDensityMulti(np.column_stack([f, 2 * f]), x, h, center, size, res, 1.0)
+    single = GridSurfaceDensity(f, x, h, center, size, res, box_size=1.0)
+    assert np.allclose(multi[:, :, 0], single, rtol=1e-12, atol=0)
+
+
+@requires_cuda
+def test_cuda_multi_matches_stacked_single_channel_calls():
+    """Each channel equals the single-field cuda deposition of that column."""
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    F = np.column_stack([f, 2 * f, f * f])
+    multi = GridSurfaceDensityMulti(F, x, h, center, size, res, backend="cuda")
+    for c in range(F.shape[1]):
+        single = GridSurfaceDensity(F[:, c], x, h, center, size, res, backend="cuda")
+        assert np.allclose(multi[:, :, c], single, rtol=RTOL_F64, atol=RTOL_F64 * single.max())
+
+
+@requires_cuda
+def test_cuda_multi_rejects_1d_weights():
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    with pytest.raises(ValueError):
+        GridSurfaceDensityMulti(f, x, h, center, size, res, backend="cuda")
+
+
+def test_cpu_multi_rejects_float32():
+    from meshoid.grid_deposition import GridSurfaceDensityMulti
+
+    f, x, h, center, size, res = _setup()
+    with pytest.raises(ValueError, match="float64"):
+        GridSurfaceDensityMulti(np.column_stack([f, f]), x, h, center, size, res, dtype=np.float32)
+
+
+@requires_cuda
 def test_cuda_rejects_conservative():
     f, x, h, center, size, res = _setup()
     with pytest.raises(NotImplementedError):
