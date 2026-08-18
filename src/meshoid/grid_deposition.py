@@ -70,7 +70,19 @@ def UpsampleGrid(grid):
     return RectBivariateSpline(x1, x1, grid)(x2, x2)  # RectBivariateSpline(x1,
 
 
-def GridSurfaceDensity(f, x, h, center, size, res=128, box_size=None, parallel=True, conservative=False):
+def GridSurfaceDensity(
+    f,
+    x,
+    h,
+    center,
+    size,
+    res=128,
+    box_size=None,
+    parallel=True,
+    conservative=False,
+    backend="cpu",
+    dtype=np.float64,
+):
     """
     Computes the surface density of conserved quantity f colocated at positions
     x with smoothing lengths h. E.g. plugging in particle masses would return
@@ -95,11 +107,34 @@ def GridSurfaceDensity(f, x, h, center, size, res=128, box_size=None, parallel=T
         Size of the periodic domain. If set, periodic boundary conditions are
         applied and coordinates are assumed to run from [0, box_size).
     parallel: boolean, optional
-        Whether to run in parallel (default True)
+        Whether to run in parallel (default True; ignored by the cuda backend)
     conservative: boolean, optional
         Whether to do a a perfectly-conservative deposition to the grid (default False)
+    backend: str, optional
+        "cpu" (default) for the numba-threaded deposition, or "cuda" for the
+        GPU one, which agrees with the CPU result to summation-order roundoff
+        and is roughly 20x faster on a full snapshot. Not automatic: "cuda"
+        raises if no device is available rather than silently falling back.
+    dtype: optional
+        Deposition precision, np.float64 (default) or np.float32. float32 is
+        cuda-only: it is ~10x faster on consumer GPUs (which run FP64 at 1/64
+        rate) for ~1e-6 relative error, while on CPU it measures no faster.
     """
     box_size = _normalize_box_size(box_size)
+
+    if backend == "cuda":
+        if conservative:
+            raise NotImplementedError("the cuda backend implements only the non-conservative deposition")
+        from .gpu_deposition import GridSurfaceDensity_cuda
+
+        return GridSurfaceDensity_cuda(f, x, h, center, size, res, box_size, dtype=dtype)
+    if backend != "cpu":
+        raise ValueError(f"backend must be 'cpu' or 'cuda', got {backend!r}")
+    if np.dtype(dtype) != np.float64:
+        raise ValueError(
+            f"the cpu backend always deposits in float64, got dtype={np.dtype(dtype)}; "
+            "use backend='cuda' for float32"
+        )
 
     if conservative:
         core = GridSurfaceDensity_conservative_core

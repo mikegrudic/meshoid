@@ -11,7 +11,10 @@ API Documentation
     :members:
 
 .. automodule:: meshoid.grid_deposition
-    :members:       
+    :members:
+
+.. automodule:: meshoid.gpu_deposition
+    :members:
 
 .. automodule:: meshoid.derivatives
     :members:
