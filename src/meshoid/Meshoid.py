@@ -688,7 +688,16 @@ class Meshoid:
         return f_grid
 
     def SurfaceDensity(
-        self, f=None, size=None, center=None, res=128, smooth_fac=1.0, conservative=False, multigrid=False
+        self,
+        f=None,
+        size=None,
+        center=None,
+        res=128,
+        smooth_fac=1.0,
+        conservative=False,
+        multigrid=False,
+        backend="cpu",
+        dtype=np.float64,
     ):
         """
         Computes the surface density of a quantity f defined on the meshoid on a grid of sightlines. e.g. if f is the particle masses, you will get mass surface density.
@@ -705,6 +714,10 @@ class Meshoid:
             the resolution of the grid of sightlines (default: 128)
         smooth_fac: float, optional
             smoothing lengths are increased by this factor (default: 1.)
+        backend: str, optional
+            "cpu" (default) or "cuda"; see grid_deposition.GridSurfaceDensity
+        dtype: optional
+            deposition precision, np.float64 (default) or np.float32 (cuda only)
 
         Returns
         -------
@@ -716,10 +729,14 @@ class Meshoid:
             center = self.center
         if size is None:
             size = self.L
+        kwargs = {"parallel": (False if self.n_jobs == 1 else True), "conservative": conservative}
         if multigrid:
+            if backend != "cpu":
+                raise NotImplementedError(f"the multigrid renderer is cpu-only, got backend={backend!r}")
             renderer = GridSurfaceDensityMultigrid
         else:
             renderer = GridSurfaceDensity
+            kwargs.update(backend=backend, dtype=dtype)
         return renderer(
             f,
             self.pos,
@@ -728,8 +745,7 @@ class Meshoid:
             size,
             res,
             self._grid_boxsize,
-            parallel=(False if self.n_jobs == 1 else True),
-            conservative=conservative,
+            **kwargs,
         )
 
     def MassWeightedAverage(self, f, masses=None, size=None, center=None, res=128, smooth_fac=1.0, conservative=False):
