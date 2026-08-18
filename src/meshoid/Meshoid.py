@@ -384,7 +384,8 @@ class Meshoid:
         f : array_like
           Shape (Nmask, ...) function colocated on the meshoid
 
-        Returns:
+        Returns
+        -------
         integral of f over the domain
         """
         return np.einsum("i,i...->...", self.vol, f[self.particle_mask], optimize="optimal")
@@ -423,7 +424,7 @@ class Meshoid:
         self,
         f: np.ndarray,
         target_points: np.ndarray,
-        order: int = 1,
+        order: int = 0,
         slope_limiter: bool = False,
     ):
         """
@@ -439,7 +440,7 @@ class Meshoid:
             The shape (N_target,dim) array of points where you would like to
             reconstruct the function
         order: int, optional
-            The order of the reconstruction (default 1):
+            The order of the reconstruction (default 0):
             0 - nearest-neighbor value
             1 - linear reconstruction from the nearest neighbor
             2 - quadratic reconstruction from the nearest neighbor
@@ -571,7 +572,7 @@ class Meshoid:
         res : int, optional
             the resolution of the grid (default: 128)
         order : int, optional
-            Order of the reconstruction on the slice: 0, 1, or 2 (default: 1)
+            Order of the reconstruction on the slice: 0, 1, or 2 (default: 0)
         return_grid : bool, optional
             Also return the grid coordinates corresponding to the slice
         slope_limiter : bool, optional
@@ -606,7 +607,7 @@ class Meshoid:
             return x, y, f_grid.reshape(shape)
         return f_grid.reshape(shape)
 
-    def InterpToGrid(self, f, size=None, center=None, res: int = 128, order: int = 1, return_grid: bool = False, slope_limiter: bool = False):
+    def InterpToGrid(self, f, size=None, center=None, res: int = 128, order: int = 0, return_grid: bool = False, slope_limiter: bool = False):
         """
         Interpolates the quantity f defined on the meshoid to the cell centers
         of a 3D Cartesian grid
@@ -625,7 +626,7 @@ class Meshoid:
         res: integer, optional
             Resolution of the grid - default 128
         order : int, optional
-            Order of the reconstruction on the slice: 0, 1, or 2 (default: 1)
+            Order of the reconstruction on the slice: 0, 1, or 2 (default: 0)
         slope_limiter : bool, optional
             Whether to apply the Barth-Jespersen slope limiter (default False)
 
@@ -714,6 +715,11 @@ class Meshoid:
             the resolution of the grid of sightlines (default: 128)
         smooth_fac: float, optional
             smoothing lengths are increased by this factor (default: 1.)
+        conservative: bool, optional
+            Use the mass-conserving deposition (default: False); cpu only
+        multigrid: bool, optional
+            Deposit each particle at a resolution matched to its smoothing
+            length (default: False); requires a power-of-2 res, cpu only
         backend: str, optional
             "cpu" (default) or "cuda"; see grid_deposition.GridSurfaceDensity
         dtype: optional
