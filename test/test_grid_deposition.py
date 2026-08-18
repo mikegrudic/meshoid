@@ -44,6 +44,46 @@ def test_grid_average_constant_field():
     assert np.allclose(ga[finite], 3.5)
 
 
+def test_grid_average_parallel_matches_serial():
+    f, x, h, center, size, res = _setup()
+    for box_size in (-1.0, 1.0):
+        serial = GridAverage(f, x, h, center, size, res, box_size, parallel=False)
+        par = GridAverage(f, x, h, center, size, res, box_size, parallel=True)
+        assert np.array_equal(np.isfinite(serial), np.isfinite(par))
+        finite = np.isfinite(serial)
+        assert np.allclose(serial[finite], par[finite], rtol=1e-12, atol=0)
+
+
+def test_grid_average_matches_ratio_of_depositions():
+    """GridAverage is sum(f W)/sum(W): it must agree with the two depositions
+    done separately, which is what the fused loop it replaced computed."""
+    f, x, h, center, size, res = _setup()
+    num = GridSurfaceDensity(f, x, h, center, size, res, parallel=False)
+    den = GridSurfaceDensity(np.ones_like(f), x, h, center, size, res, parallel=False)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        expected = num / den
+    ga = GridAverage(f, x, h, center, size, res)
+    finite = np.isfinite(expected)
+    assert finite.any()
+    assert np.array_equal(finite, np.isfinite(ga))
+    assert np.allclose(ga[finite], expected[finite], rtol=1e-12, atol=0)
+
+
+def test_ppz_datacube_parallel_matches_serial():
+    from meshoid.grid_deposition import Grid_PPZ_DataCube
+
+    f, x, h, _, _, _ = _setup()
+    rng = np.random.default_rng(1)
+    z = rng.normal(size=len(f))
+    h_z = 0.1 + 0.1 * rng.random(len(f))
+    center, size, res = np.array([0.5, 0.5, 0.0]), np.array([1.0, 4.0]), np.array([32, 8])
+    for box_size in (-1.0, 1.0):
+        serial = Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res, box_size, parallel=False)
+        par = Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res, box_size, parallel=True)
+        assert serial.shape == (res[0], res[0], res[1])
+        assert np.allclose(serial, par, rtol=1e-12, atol=0)
+
+
 def test_multi_matches_single_serial():
     from meshoid.grid_deposition import GridSurfaceDensityMulti
 

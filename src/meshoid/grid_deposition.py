@@ -399,8 +399,39 @@ def Grid_PPZ_DataCube_Multigrid(f, x, h, center, size, z, h_z, res, box_size=Non
     return grid
 
 
-@njit(fastmath=True, cache=True)
-def Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res, box_size=-1.0):
+def Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res, box_size=-1.0, parallel=True):
+    """Thread-parallel wrapper for Grid_PPZ_DataCube_core; see it for the inputs.
+
+    parallel - whether to run in parallel (default True)
+    """
+    box_size = _normalize_box_size(box_size)
+    if not parallel:
+        return Grid_PPZ_DataCube_core(f, x, h, center, size, z, h_z, res, box_size)
+
+    nthreads = get_num_threads()
+    chunks = [np.array_split(a, nthreads, 0) for a in (f, x, h, z, h_z)]
+    results = [None] * nthreads
+
+    def _worker(i):
+        fc, xc, hc, zc, hzc = (c[i] for c in chunks)
+        results[i] = Grid_PPZ_DataCube_core(fc, xc, hc, center, size, zc, hzc, res, box_size)
+
+    from threading import Thread
+
+    threads = [Thread(target=_worker, args=(i,)) for i in range(nthreads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    out = np.zeros((res[0], res[0], res[1]))
+    for r in results:
+        out += r
+    return out
+
+
+@njit(fastmath=True, cache=True, nogil=True)
+def Grid_PPZ_DataCube_core(f, x, h, center, size, z, h_z, res, box_size=-1.0):
     """
     A modified version of the GridSurfaceDensity script, it computes the PPZ datacube of conserved quantity f, where Z is an arbitrary data dimension (e.g. using line-of-sight velocity as Z gives the usual astro PPV datacubes, using position gives a PPP cube, which is just the density).
 
@@ -471,10 +502,13 @@ def Grid_PPZ_DataCube(f, x, h, center, size, z, h_z, res, box_size=-1.0):
     return grid
 
 
-@njit(fastmath=True, cache=True)
-def GridAverage(f, x, h, center, size, res=128, box_size=-1.0):
+def GridAverage(f, x, h, center, size, res=128, box_size=-1.0, parallel=True, backend="cpu", dtype=np.float64):
     """
     Computes the number density-weighted average of a function f, integrated along sightlines on a Cartesian grid. ie. integral(n f dz)/integral(n dz) where n is the number density and z is the direction of the sightline.
+
+    Deposits f and the weights as two channels of one traversal and divides:
+    identical to accumulating both sums in a fused loop, but inherits the
+    threading and the cuda backend of the deposition routines.
 
     Arguments:
     f - (N,) array of the conserved quantity that you want the surface density of (e.g. particle masses)
@@ -484,52 +518,20 @@ def GridAverage(f, x, h, center, size, res=128, box_size=-1.0):
     size - side-length of the map
     res - resolution of the grid
     box_size - size of the periodic domain (<= 0 disables periodicity)
+    parallel - whether to run in parallel (default True; ignored by the cuda backend)
+    backend - "cpu" (default) or "cuda"; see GridSurfaceDensity
+    dtype - deposition precision, np.float64 (default) or np.float32 (cuda only)
+
+    Empty sightlines have no weight, so they come back NaN.
     """
-    # periodic mode tiles the box with res *distinct* cells (spacing size/res);
-    # non-periodic uses the node convention spanning corner-to-corner (size/(res-1))
-    dx = size / res if box_size > 0 else size / (res - 1)
-
-    x2d = x[:, :2] - center[:2] + size / 2
-
-    grid1 = np.zeros((res, res))
-    grid2 = np.zeros((res, res))
-    offsets = periodic_offsets(box_size)
-    n_off = offsets.shape[0]
-
-    N = len(x)
-    for i in range(N):
-        hs = h[i]
-        hs_sqr = hs * hs
-        hinv = 1 / hs
-        h2 = hinv * hinv
-        fh2 = f[i] * h2
-
-        for a in range(n_off):
-            xs0 = x2d[i, 0] + offsets[a]
-            gxmin = max(int((xs0 - hs) / dx + 1), 0)
-            gxmax = min(int((xs0 + hs) / dx), res - 1)
-            if gxmin > gxmax:
-                continue
-            for b in range(n_off):
-                xs1 = x2d[i, 1] + offsets[b]
-                gymin = max(int((xs1 - hs) / dx + 1), 0)
-                gymax = min(int((xs1 + hs) / dx), res - 1)
-                if gymin > gymax:
-                    continue
-                for gx in range(gxmin, gxmax + 1):
-                    delta_x_sqr = xs0 - gx * dx
-                    delta_x_sqr *= delta_x_sqr
-                    for gy in range(gymin, gymax + 1):
-                        delta_y_sqr = xs1 - gy * dx
-                        delta_y_sqr *= delta_y_sqr
-                        r_sqr = delta_x_sqr + delta_y_sqr
-                        if r_sqr > hs_sqr:
-                            continue
-                        q = np.sqrt(r_sqr) * hinv
-                        kernel = kernel2d(q)
-                        grid1[gx, gy] += kernel * h2
-                        grid2[gx, gy] += fh2 * kernel
-    return grid2 / grid1
+    f = np.asarray(f)
+    stacked = GridSurfaceDensityMulti(
+        np.column_stack([f, np.ones(len(f), dtype=f.dtype)]),
+        x, h, center, size, res, box_size,
+        parallel=parallel, backend=backend, dtype=dtype,
+    )
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return stacked[:, :, 0] / stacked[:, :, 1]
 
 
 @njit(fastmath=True, cache=True)
