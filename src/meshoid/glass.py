@@ -36,11 +36,11 @@ def particle_glass(
     N: int, optional
         Number of particles (default 64^3)
     L: float, optional
-        Box side length (default 1.)c
+        Box side length (default 1.)
     dim: int, optional
         Dimensionality of the box (default 3)
     tol: float, optional
-        Tolerance for the RMS density variation (default 1e-2)
+        Tolerance for the RMS density variation (default 1e-3)
 
     Returns
     -------

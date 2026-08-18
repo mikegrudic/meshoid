@@ -20,7 +20,10 @@ def radtransfer(j, m, kappa, x, h, gridres, L, center=0, i0=0):
     ----------
     j: array_like
         shape (N, num_freqs) array of particle emissivities per unit mass (e.g.
-        erg/s/g/Hz)
+        erg/s/g/Hz). Total emissivity, NOT per steradian: the solver divides by
+        4*pi itself. It also forms j/kappa internally, so j and kappa must
+        express mass in the same unit (both per gram, or both per solar mass,
+        ...) - mixing them silently rescales the result.
     m: array_like
         shape (N,) array of particle masses
     kappa: array_like
@@ -43,7 +46,9 @@ def radtransfer(j, m, kappa, x, h, gridres, L, center=0, i0=0):
     -------
     image: array_like
         shape (res,res) array of integrated intensities, in your units of
-        power / length^2 / sr / frequency (this is the quantity I_ν in RT)
+        power / length^2 / sr / frequency (this is the quantity I_ν in RT).
+        The length unit is whatever x and h are in, so passing positions in pc
+        gives an intensity per pc^2.
     """
 
     Nchunks = get_num_threads()
@@ -95,7 +100,10 @@ def radtransfer_singlethread(j, m, kappa, x, h, gridres, L, center=0, i0=0):
     ----------
     j: array_like
         shape (N, num_freqs) array of particle emissivities per unit mass (e.g.
-        erg/s/g/Hz)
+        erg/s/g/Hz). Total emissivity, NOT per steradian: the solver divides by
+        4*pi itself. It also forms j/kappa internally, so j and kappa must
+        express mass in the same unit (both per gram, or both per solar mass,
+        ...) - mixing them silently rescales the result.
     m: array_like
         shape (N,) array of particle masses
     kappa: array_like
@@ -113,9 +121,6 @@ def radtransfer_singlethread(j, m, kappa, x, h, gridres, L, center=0, i0=0):
     i0: array_like, optional
         shape (num_freqs,) or (gridres,greidres,num_freqs) array of background
         intensities
-    return_taumap: boolean, optional
-        Whether to return the optical depth map alongside the intensity map
-        (default False)
 
     Returns
     -------

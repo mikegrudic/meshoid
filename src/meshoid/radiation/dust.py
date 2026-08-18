@@ -21,7 +21,7 @@ def dust_abs_opacity(
 
     Parameters
     ----------
-    wavelength_um: array_like
+    wavelength: array_like
         Shape (num_bands) array-like of wavelengths; if a raw float array, microns are assumed, but will take an astropy quantity.
     hydrogen_massfrac: float, optional
         Mass fraction of hydrogen (needed to convert from per H to per g)
@@ -215,8 +215,8 @@ def thermal_emissivity(kappa, T, wavelengths_um=HERSCHEL_DEFAULT_WAVELENGTHS):
         shape (N,num_bands) array of opacities
     T: array_like
         shape (N,) array of temperatures
-    wavelengths: array_like
-        shape (num_bands,) array of wavelengths
+    wavelengths_um: array_like
+        shape (num_bands,) array of wavelengths in microns
 
     Returns
     -------

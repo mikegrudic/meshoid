@@ -135,9 +135,12 @@ def GridSurfaceDensity(
         Whether to do a a perfectly-conservative deposition to the grid (default False)
     backend: str, optional
         "cpu" (default) for the numba-threaded deposition, or "cuda" for the
-        GPU one, which agrees with the CPU result to summation-order roundoff
-        and is roughly 20x faster on a full snapshot. Not automatic: "cuda"
-        raises if no device is available rather than silently falling back.
+        GPU one, which agrees with the CPU result to summation-order roundoff.
+        The deposition itself is ~20x faster than the threaded CPU one on a
+        full snapshot, but every call also marshals and uploads the particle
+        arrays, a fixed cost that dominates for small maps - so the end-to-end
+        gain grows with resolution. Not automatic: "cuda" raises if no device
+        is available rather than silently falling back.
     dtype: optional
         Deposition precision, np.float64 (default) or np.float32. float32 is
         cuda-only: it is ~10x faster on consumer GPUs (which run FP64 at 1/64
